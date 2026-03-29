@@ -206,4 +206,9 @@ cat analysis.txt
 - **-p**: Muestra solo el flat profile (sin call graph).
 - **-pfunc1**: Filtra el flat profile para mostrar solo 
 
-#### Resultados
+#### Resultados obtenidos
+| Componentes PC | Tiempo total | Tiempo en main | Tiempo en func1 | Tiempo en func2 | Tiempo en new_func1 |
+|---|---|---|---|---|---|
+| AMD Ryzen 9 7940HS - 16GB RAM DDR5 - NVIDIA RTX 4060 mb | 2.90 s | 0.10 s | 1.58 s | 1.12 s | 0.10 s |
+| AMD Ryzen 5 7600X - 32GB RAM DDR5 - AMD Radeon RX 6750XT | 2.78 s | 0.09 s | 1.51 s | 1.08 s | 0.10 s |
+| Intel i7-12700H - 16GB RAM DDR5 - NVIDIA RTX 3060 mb | 2.23 s | 0.07 s | 1.53 s | 0.63 s | 0.07 s |
