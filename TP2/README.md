@@ -42,7 +42,8 @@ Antes de compilar el sistema completo, se puede verificar que la conexión con e
 1. Ejecutar en la terminal:
    ```bash
    python3 api_gini.py
+   ```
+   
+   Resultado
 
-Resultado
-
-![Resultado de ejecutar la iteración 1](img/python_manual.png)
+   ![Resultado de ejecutar la iteración 1](img/python_manual.png)
