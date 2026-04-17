@@ -44,4 +44,5 @@ Antes de compilar el sistema completo, se puede verificar que la conexión con e
    python3 api_gini.py
 
 Resultado
-   ![Resultado de ejecutar la iteración 1](img/python_manual.png)
+
+![Resultado de ejecutar la iteración 1](img/python_manual.png)
