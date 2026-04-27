@@ -126,7 +126,6 @@ desafio_final/
 ├── boot_readonly.s    # 3) segmento de datos read-only + intento de escritura
 ├── linker.ld          # script del linker (carga en 0x7C00)
 ├── Makefile           # compila las 3 imagenes y las corre en QEMU
-└── DESAFIO_FINAL.md   # este documento
 ```
 
 Para construir las tres imágenes:
