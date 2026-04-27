@@ -96,16 +96,16 @@ La línea . = 0x7c00 establece el el contador de posición del linker en la dire
 ### Compare la salida de objdump con hd, verifique donde fue colocado el programa dentro de la imagen. 
 
 Salida con hd:
-![alt text](4.gif)
+![alt text](img/4.gif)
 
 Salida con objdump:
-![alt text](5.gif)
+![alt text](img/5.gif)
 
 El programa ejecutable ocupa los primeros 15 bytes de la imagen (posiciones 0x00 a 0x0E). Son las instrucciones mov, lods, or, je, int, jmp y hlt que conforman el loop de impresión. En hd se ven como bytes hexadecimales (be 0f 7c b4 0e ac 08 c0 74 04 cd 10 eb f7 f4), y en objdump se ven como instrucciones desensambladas.
 
 ### Grabar la imagen en un pendrive y probarla en una pc y subir una foto 
 
-![alt text](6.gif)
+![alt text](img/6.gif)
 
 ### ¿Para que se utiliza la opción --oformat binary en el linker?
 
