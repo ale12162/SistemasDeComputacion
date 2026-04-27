@@ -257,6 +257,7 @@ movl    $0xA8000, %edi      # DS:0xA8000 => fisica 0xB8000  (VGA)
 
 Si se escribe `mov $0, %esi` desde código que pensara estar en CS:0, leería el primer byte del bootloader; en cambio, al estar leyendo desde DS:0, lee el mensaje copiado a `0x10000`. Es exactamente el caso de "espacios de memoria diferenciados".
 
+![Comparación de GDTs](img/1_2.gif)
 
 ## 3. Segmento de datos de solo lectura — qué pasa al escribir
 
