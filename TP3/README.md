@@ -113,94 +113,256 @@ Le dice al linker que genere un archivo binario plano (raw binary), sin ningún 
 
 
 ### Modo protegido
+# Desafío final: Modo protegido
 
-Para pasar de Modo Real (16 bits) a Modo Protegido (32 bits), es necesario deshabilitar las interrupciones, cargar una Tabla Global de Descriptores (GDT) en memoria para configurar la MMU del hardware, cambiar el bit 0 del registro de control `CR0` y limpiar el pipeline del procesador mediante un salto largo (*far jump*).
+En esta sección se construye, desde cero y sin macros, un bootloader que pasa de modo real a modo protegido, se generan dos variantes del programa para responder las consignas del desafío y se verifica con `gdb` el comportamiento del procesador cuando se intenta escribir sobre un segmento de solo lectura.
 
-#### 1. Código Assembler: GDT con dos descriptores y Segmento Read-Only
+Todo el código fuente y el Makefile están en esta misma carpeta (`desafio_final/`).
 
-A continuación se detalla cómo configurar la GDT para tener un segmento de código y un segmento de datos diferenciado y de solo lectura.
-
-```assembly
-.code16
-.global _start
-
-_start:
-    cli                     # Deshabilitar interrupciones por hardware
-    lgdt gdtr               # Cargar el puntero de nuestra GDT en el procesador
-
-    # Encender el Modo Protegido (Setear el bit 0 del registro CR0)
-    mov %cr0, %eax
-    or $1, %eax
-    mov %eax, %cr0
-
-    # Salto largo (Far Jump) para limpiar el pipeline y aplicar el nuevo CS
-    # 0x08 es el índice que apunta al Descriptor de Código en la GDT
-    jmp $0x08, $modo_protegido
-
-.code32
-modo_protegido:
-    # 0x10 es el índice que apunta al Descriptor de Datos en la GDT
-    mov $0x10, %ax
-    mov %ax, %ds
-    
-    # INTENTO DE ESCRITURA EN SEGMENTO READ-ONLY
-    # Esto provocará un fallo de hardware.
-    movl $0xDEADBEEF, (0x1000) 
-
-    hlt
-
-# --- TABLA GDT ---
-.align 4
-gdt_start:
-null_descriptor:
-    .quad 0                 # El offset 0x00 siempre debe ser nulo por arquitectura
-
-code_descriptor:            # Offset 0x08
-    .word 0xffff            # Límite (bits 0-15)
-    .word 0x0000            # Base física (arranca en 0x0)
-    .byte 0x00              
-    .byte 0b10011010        # Access Byte: Presente, Ejecutable, Lectura permitida.
-    .byte 0b11001111        
-    .byte 0x00              
-
-data_descriptor:            # Offset 0x10
-    .word 0xffff            # Límite
-    .word 0x1000            # Base física DIFERENTE (arranca en 0x1000)
-    .byte 0x00              
-    .byte 0b10010000        # Access Byte: READ-ONLY (El bit de Writable está en 0)
-    .byte 0b11001111        
-    .byte 0x00              
-gdt_end:
-
-gdtr:
-    .word gdt_end - gdt_start - 1 # Tamaño de la tabla
-    .long gdt_start               # Puntero a la tabla
+```
+desafio_final/
+├── boot_pm.s          # 1) pasaje a modo protegido (sin macros)
+├── boot_segmentos.s   # 2) dos descriptores con bases distintas
+├── boot_readonly.s    # 3) segmento de datos read-only + intento de escritura
+├── linker.ld          # script del linker (carga en 0x7C00)
+├── Makefile           # compila las 3 imagenes y las corre en QEMU
+└── DESAFIO_FINAL.md   # este documento
 ```
 
-#### 2. ¿Cómo sería un programa que tenga dos descriptores de memoria diferentes?
-Para que los descriptores apunten a bloques de memoria lógicamente separados, se debe modificar la dirección **Base física** dentro de la estructura de la GDT. En el código proporcionado, el `code_descriptor` inicia su bloque en la dirección física `0x0000`, mientras que el `data_descriptor` establece su base desplazada en la dirección `0x1000`. De esta manera, el hardware (a través de la MMU) aísla completamente la memoria de programa de la memoria de datos.
+Para construir las tres imágenes:
 
-#### 3. Intento de escritura en un segmento de Solo Lectura (Read-Only)
-Para crear un segmento de solo lectura, se configuró el *Access Byte* del descriptor de datos en la GDT, forzando el bit *Writable* (modificable) a `0`. 
+```
+make
+```
 
-**¿Qué sucede al ejecutar `movl $0xDEADBEEF, (0x1000)`?**
-La MMU (Memory Management Unit) intercepta la instrucción antes de que las señales eléctricas lleguen a la memoria RAM. Al leer la configuración de la GDT, el procesador detecta que el segmento carece de permisos de escritura y dispara una interrupción por hardware conocida como **General Protection Fault (Excepción #13)**. 
+Para correr cada una:
 
-Al no haber configurado previamente un vector de interrupciones (IDT) para atajar y manejar esta excepción, la CPU sufre un *Double Fault*, seguido inmediatamente de un *Triple Fault*. A nivel arquitectónico, un *Triple Fault* activa el pin de reset del procesador, provocando que la máquina (o el emulador QEMU) aborte la ejecución y entre en un bucle infinito de reinicios.
+```
+make run-pm
+make run-segmentos
+make run-readonly
+make debug-readonly   # arranca QEMU detenido y esperando gdb en :1234
+```
 
-#### 4. En modo protegido, ¿Con qué valor se cargan los registros de segmento? ¿Por qué?
-A diferencia del Modo Real donde los registros de segmento guardaban direcciones físicas de memoria directas (ej. `0x07C0`), en Modo Protegido registros como `%cs`, `%ds` o `%es` se cargan con **Selectores de Segmento**.
 
-Un selector es un valor de 16 bits que funciona como un **índice** apuntando a una fila específica de la GDT. Por ejemplo, al cargar el registro de datos `%ds` con el valor `0x10`, no se le está indicando a la CPU una dirección RAM, sino que se le instruye que aplique las reglas de seguridad, límites y offset físico definidas en el tercer descriptor de la tabla GDT.
+## 1. Crear un código assembler que pueda pasar a modo protegido (sin macros)
 
-### Conclusión
+El archivo `boot_pm.s` es un MBR de 512 bytes (firma `0xAA55`) cargado por la BIOS en `0x7C00`. El procedimiento que sigue para pasar a modo protegido es el siguiente:
 
-Este trabajo práctico permitió comprender la evolución y el funcionamiento del proceso de arranque de una computadora desde su nivel más bajo. A través de la investigación y la experimentación práctica, logramos:
-* Entender la transición histórica y técnica desde el antiguo BIOS/MBR hacia las implementaciones modernas con UEFI y Coreboot.
-* Identificar el rol crítico del linker en la asignación de direcciones de memoria físicas (como el clásico `0x7C00`).
-* Desmitificar el paso de Modo Real a Modo Protegido, comprobando cómo el procesador delega la seguridad y la segmentación de la memoria al hardware (MMU) a través de la configuración de la GDT y los selectores de segmento.
+1. **`cli`** — se deshabilitan las interrupciones porque la IVT del modo real deja de ser válida apenas se activa el modo protegido y todavía no hay IDT.
+2. **Habilitar la línea A20.** Se usa el _Fast A20 Gate_ del puerto `0x92`: se lee el valor actual, se setea el bit 1 y se vuelve a escribir. Sin A20, la línea 21 de direcciones queda forzada a 0 y no se puede direccionar más allá del primer MiB.
+3. **Cargar la GDT con `lgdt`.** La GDT se define en la propia imagen del bootloader (sección `gdt_start … gdt_end`) y se le pasa a la CPU mediante una estructura de 6 bytes (`limit:word`, `base:long`).
+4. **Activar el bit `PE` (bit 0) del registro `CR0`.** Eso es lo que cambia el modo del procesador.
+5. **Far jump (`ljmp $0x08, $pm_start`).** Este salto es indispensable: al saltar lejos se carga `CS` con el selector `0x08` (índice 1 de la GDT) y se vacía la cola de prefetch para que las próximas instrucciones se decodifiquen como código de 32 bits.
+6. **Cargar `DS`, `ES`, `FS`, `GS`, `SS` con el selector `0x10`.** Después de eso ya estamos en modo protegido pleno y se inicializa el stack.
+7. **Imprimir el mensaje en la VGA.** En modo protegido ya no se puede usar `int 0x10`, así que se escribe directamente en el framebuffer de texto en `0xB8000` (cada celda son dos bytes: carácter + atributo de color).
 
-En resumen, el trabajo demuestra cómo las abstracciones de software se apoyan fundamentalmente en la configuración estricta de los transistores y registros del microprocesador.
+Fragmento clave (extraído de `boot_pm.s`):
+
+```asm
+.code16
+_start:
+    cli
+    inb     $0x92, %al
+    orb     $0x02, %al
+    outb    %al, $0x92         # A20 habilitada
+    lgdt    gdt_descriptor      # GDT cargada
+    movl    %cr0, %eax
+    orl     $0x1, %eax
+    movl    %eax, %cr0          # PE = 1
+    ljmp    $0x08, $pm_start    # far jump a 32 bits
+.code32
+pm_start:
+    movw    $0x10, %ax
+    movw    %ax, %ds
+    movw    %ax, %es
+    movw    %ax, %fs
+    movw    %ax, %gs
+    movw    %ax, %ss
+    movl    $0x90000, %esp
+```
+
+La GDT es la mínima imprescindible: descriptor null (obligatorio), descriptor de código `0x9A / 0xCF` y descriptor de datos `0x92 / 0xCF`, ambos con base 0 y límite 4 GiB (granularidad 4 KiB).
+
+```asm
+gdt_start:
+    .quad   0
+    # Codigo - access 0x9A, flags 0xCF
+    .word 0xFFFF; .word 0x0000; .byte 0x00; .byte 0x9A; .byte 0xCF; .byte 0x00
+    # Datos  - access 0x92, flags 0xCF
+    .word 0xFFFF; .word 0x0000; .byte 0x00; .byte 0x92; .byte 0xCF; .byte 0x00
+gdt_end:
+gdt_descriptor:
+    .word gdt_end - gdt_start - 1
+    .long gdt_start
+```
+
+Compilación y ejecución:
+
+```
+as --32 boot_pm.s -o boot_pm.o
+ld -m elf_i386 -T linker.ld --oformat binary boot_pm.o -o boot_pm.bin
+qemu-system-x86_64 -drive file=boot_pm.bin,format=raw,index=0,media=disk
+```
+
+En pantalla aparece `MODO PROTEGIDO OK - Hola desde 32 bits` impreso directamente sobre el framebuffer VGA, lo que confirma que el procesador está ejecutando código de 32 bits con la GDT activa.
+
+
+## 2. Programa con dos descriptores en espacios de memoria diferenciados
+
+`boot_segmentos.s` extiende el caso anterior eligiendo **bases distintas** para el descriptor de código y el de datos:
+
+| Selector | Tipo   | Base       | Límite       |
+| :------: | :----: | :--------: | :----------: |
+|  `0x08`  | Código | `0x00000000` | 4 GiB (G=1)  |
+|  `0x10`  | Datos  | `0x00010000` | 4 GiB (G=1)  |
+
+El descriptor de datos en la GDT queda así (notar el byte `base[16:23] = 0x01`):
+
+```asm
+# Datos: base = 0x00010000
+.word   0xFFFF
+.word   0x0000
+.byte   0x01            # <-- base[16:23] = 0x01  =>  base = 0x00010000
+.byte   0x92
+.byte   0xCF
+.byte   0x00
+```
+
+Como las bases son diferentes, el offset 0 visto desde `DS` ya **no** apunta al mismo byte físico que el offset 0 visto desde `CS`:
+
+- `CS:0x0000` → dirección física `0x00000000` (donde arranca la memoria)
+- `DS:0x0000` → dirección física `0x00010000` (a 64 KiB del inicio)
+
+Para que se pueda leer el mensaje desde el offset 0 de `DS`, el bootloader copia la cadena en modo real desde su lugar dentro de la imagen (cargada en `0x7C00`) hacia la dirección física `0x10000`, usando `rep movsb` con `ES = 0x1000` y `DI = 0`:
+
+```asm
+movw    $0x1000, %ax
+movw    %ax, %es
+movw    $msg_data, %si      # origen
+xorw    %di, %di            # destino offset 0 en ES => fisica 0x10000
+movw    $msg_len, %cx
+cld
+rep movsb
+```
+
+Ya en modo protegido, lectura y escritura usan **el mismo `DS`** pero con offsets distintos:
+
+```asm
+xorl    %esi, %esi          # DS:0       => fisica 0x10000  (mensaje)
+movl    $0xA8000, %edi      # DS:0xA8000 => fisica 0xB8000  (VGA)
+```
+
+`0xA8000 = 0xB8000 − 0x10000`, es decir, el offset dentro del segmento de datos para alcanzar el framebuffer de la VGA cuando la base de `DS` es `0x10000`. Eso muestra de manera explícita que código y datos viven en _espacios lógicos_ diferentes: aunque la memoria física es la misma, cada selector tiene su propia "ventana" sobre ella.
+
+Si se escribe `mov $0, %esi` desde código que pensara estar en CS:0, leería el primer byte del bootloader; en cambio, al estar leyendo desde DS:0, lee el mensaje copiado a `0x10000`. Es exactamente el caso de "espacios de memoria diferenciados".
+
+
+## 3. Segmento de datos de solo lectura — qué pasa al escribir
+
+`boot_readonly.s` es idéntico a `boot_pm.s` salvo por **un único bit** en el descriptor de datos:
+
+```asm
+# Datos READ-ONLY:  access = 0x90 = 1 00 1 0000
+#   P=1 DPL=00 S=1 E=0(datos) DC=0 W=0(NO escribible) A=0
+.byte   0x90        # antes era 0x92
+```
+
+El bit relevante es el bit 1 del byte de access (`W` para descriptores de datos). En `0x92` está en 1 (escribible), en `0x90` está en 0 (solo lectura).
+
+### ¿Qué sucede al intentar escribir?
+
+El programa, después de pasar a modo protegido, primero escribe `RO` en la VGA usando un `EDI = 0xB8000` (eso funciona porque `DS` cubre toda la memoria), y a continuación intenta escribir un byte con:
+
+```asm
+movb    $0xFF, (%edi)
+```
+
+Sobre el segmento `DS` cuyo descriptor está marcado como _read-only_. Esa escritura genera una **#GP — General Protection Fault (vector 13)**: la unidad de protección del procesador detecta que el descriptor no permite escritura y aborta la instrucción antes de modificar memoria.
+
+### ¿Qué debería suceder a continuación?
+
+Lo que el procesador hace ante una `#GP` está descripto en el manual de Intel (vol. 3, _Interrupt and Exception Handling_). El flujo "normal" es:
+
+1. La CPU consulta la **IDT** (Interrupt Descriptor Table) en la entrada 13.
+2. Encuentra un _gate_ válido que describe el handler de `#GP`.
+3. Salta al handler con un código de error en la pila y deja que el sistema operativo decida qué hacer (usualmente terminar el proceso).
+
+En nuestro caso **nunca cargamos una IDT**, así que el procesador no encuentra el gate de `#GP` y eleva la falla:
+
+1. `#GP` no manejada → la CPU intenta entrar a `#DF` (_Double Fault_, vector 8).
+2. Tampoco hay handler para `#DF` → **triple fault**.
+3. Un triple fault provoca el **reset del procesador**, que reinicia toda la máquina.
+
+En QEMU el efecto visible es que la VM se reinicia (o se cierra, si se la corre con `-no-reboot`).
+
+### Verificación con `gdb`
+
+Para verlo en vivo se compila y se arranca QEMU detenido con el stub de gdb activado:
+
+```
+make debug-readonly
+# en otra terminal
+gdb -ex "target remote :1234" -ex "set architecture i8086"
+```
+
+Dentro de gdb:
+
+```
+(gdb) b *0x7C00              # primer byte del bootloader
+(gdb) c                       # ejecuta hasta ahi
+(gdb) display/i $pc           # muestra la instruccion actual cada step
+(gdb) si                      # ir paso a paso
+... avanzar hasta despues del ljmp ...
+(gdb) set architecture i386   # ya estamos en 32 bits
+(gdb) si                      # seguir hasta la instruccion movb $0xFF,(%edi)
+(gdb) si                      # ESTA es la que dispara #GP
+```
+
+Adicionalmente, si se corrió QEMU con `-d int,cpu_reset` (lo hace el target `run-readonly` del Makefile), por la salida de QEMU aparecen dos eventos consecutivos:
+
+```
+check_exception old: 0xffffffff new 0xd     <- #GP, vector 13
+...
+check_exception old: 0xd new 0x8            <- #DF, vector 8
+...
+CPU Reset (CPU 0)                            <- triple fault
+```
+
+Esa traza confirma exactamente la cadena `#GP → #DF → triple fault → reset` que predice la teoría.
+
+
+## 4. ¿Con qué valor se cargan los registros de segmento en modo protegido? ¿Por qué?
+
+Se cargan con un **selector** de 16 bits, no con una dirección base. El formato del selector es:
+
+```
+ 15                                3   2   1   0
++-----------------------------------+---+-------+
+|              índice               | TI|  RPL  |
++-----------------------------------+---+-------+
+```
+
+- **Índice (bits 15..3):** posición del descriptor dentro de la tabla (8 bytes por entrada).
+- **TI (bit 2):** _Table Indicator_. `0` = GDT, `1` = LDT.
+- **RPL (bits 1..0):** _Requested Privilege Level_ (0 = ring 0, 3 = ring 3).
+
+En los programas de este desafío los selectores son:
+
+| Registro | Valor   | Significado                                              |
+| :------: | :-----: | -------------------------------------------------------- |
+| `CS`     | `0x08`  | índice 1 (segmento de código), TI=0 (GDT), RPL=0         |
+| `DS/ES/SS/FS/GS` | `0x10` | índice 2 (segmento de datos), TI=0 (GDT), RPL=0   |
+
+**¿Por qué un selector y no una base?** Porque la lógica de protección del 80386 hacia adelante separó *qué* segmento se usa (selector, visible al programador) de *cómo* es ese segmento (descriptor, almacenado en la GDT/LDT, controlado por el sistema operativo). El descriptor contiene la base, el límite, el nivel de privilegio, el tipo (código/datos), si es leíble/escribible/ejecutable, etc. Cuando el procesador carga un selector en un registro de segmento, internamente lee el descriptor referenciado y guarda toda esa información en una **shadow register** invisible para el programador. Las accesos siguientes usan esa caché, sin volver a consultar la tabla.
+
+Esta indirección permite tres cosas que el modo real no podía dar:
+
+- **Protección:** el código de usuario solo puede usar selectores que el SO le habilitó; si intenta cargar uno con un RPL inferior al CPL actual, la CPU dispara `#GP`.
+- **Aislamiento:** dos procesos pueden tener LDTs distintas y compartir la GDT, viendo "su propia" memoria sin pisar al otro.
+- **Atributos por segmento:** marcar un segmento como solo lectura, ejecutable, sistema, conformante, etc., como vimos con el descriptor `0x90` del punto 3.
+
+En resumen, los registros de segmento dejan de ser punteros directos para convertirse en *handles* a entradas de una tabla controlada por el sistema, y por eso lo que se les escribe son selectores con la forma `índice·8 + TI·4 + RPL`.
 
 ### Bibliografia
 - https://www.lenovo.com/ar/es/glosario/uefi/?orgRef=https%253A%252F%252Fwww.google.com%252F&srsltid=AfmBOoqRwmyjiC2P8mG_-BWqRwpSsGSIz4byrFluFUqVfA7tWc6FsPN8
