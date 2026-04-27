@@ -204,9 +204,9 @@ as --32 boot_pm.s -o boot_pm.o
 ld -m elf_i386 -T linker.ld --oformat binary boot_pm.o -o boot_pm.bin
 qemu-system-x86_64 -drive file=boot_pm.bin,format=raw,index=0,media=disk
 ```
+![Procedimiento de compilación - QEMU modo protegido](img/1_1.gif)
 
 En pantalla aparece `MODO PROTEGIDO OK - Hola desde 32 bits` impreso directamente sobre el framebuffer VGA, lo que confirma que el procesador está ejecutando código de 32 bits con la GDT activa.
-
 
 ## 2. Programa con dos descriptores en espacios de memoria diferenciados
 
