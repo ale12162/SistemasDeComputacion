@@ -173,3 +173,164 @@ Eso lo vuelve un objetivo para los desarrolladores de malware:
 2. **Privilegio máximo y previo al SO.** Ejecuta antes que cualquier antivirus o EDR. Para el momento en que el SO terminó de cargar, el bootkit ya tomó las decisiones que quería tomar (ej. desactivar verificaciones, modificar el kernel en vuelo, plantar drivers).
 3. **Invisibilidad para el SO.** Los antivirus convencionales escanean el disco y la RAM "de su lado"; muy pocos inspeccionan las páginas de `RuntimeServicesCode`, porque están marcadas como pertenecientes al firmware y son código que el SO no controla.
 4. **Sobreviven a reinstalaciones del SO.** El bootkit modifica la imagen del firmware en SPI flash; en cada arranque siguiente, el firmware vuelve a copiarse a esas páginas de `RuntimeServicesCode` ya infectadas. El SO ve un sistema "limpio", pero el firmware no lo es.
+
+
+# TP3 — Ejecución de aplicación UEFI en Bare Metal
+
+## Objetivo
+
+Trasladar el binario `aplicacion.efi` (compilado en el TP2) desde el entorno de desarrollo a una computadora real (Lenovo ThinkPad T450), sorteando las restricciones impuestas por **Secure Boot** y ejecutando el binario directamente desde la **UEFI Shell**, fuera de cualquier sistema operativo.
+
+---
+
+## 1. Marco teórico
+
+### 1.1 ¿Por qué Secure Boot bloquea nuestro binario?
+
+Secure Boot es un mecanismo definido en la especificación UEFI que verifica, antes de transferir el control, que todo binario `.efi` cargado durante el arranque esté firmado digitalmente por una autoridad cuya clave pública resida en la base de datos `db` del firmware. Habitualmente esta base contiene certificados de **Microsoft** y del **OEM** (en este caso Lenovo).
+
+Nuestros binarios no están en esa cadena de confianza:
+
+- **`Shell.efi` de TianoCore**: distribuido por el proyecto EDK II como binario de desarrollo, no firmado por Microsoft.
+- **`aplicacion.efi`**: compilado localmente en el TP2, sin firma alguna.
+
+Si Secure Boot estuviera activo, el firmware respondería con `Security Violation` (`EFI_SECURITY_VIOLATION`, status code `0x800000000000001A`) y abortaría la carga.
+
+### 1.2 ¿Por qué FAT32 en el USB?
+
+La especificación UEFI (sección 13.3 — *File System Format*) exige que la **System Partition (ESP)** y todo medio de arranque removible utilicen el sistema de archivos **FAT** (FAT12/16/32). El firmware no incluye drivers para ext4, NTFS, exFAT u otros, por lo que cualquier otra opción resultaría invisible al gestor de arranque.
+
+### 1.3 ¿Por qué la ruta `/EFI/BOOT/BOOTX64.EFI`?
+
+Cuando un medio removible no posee una entrada NVRAM previa, el firmware busca un *fallback path* estandarizado en función de la arquitectura. Para x86_64 esa ruta es exactamente `\EFI\BOOT\BOOTX64.EFI`. Al colocar la Shell allí, garantizamos que el firmware la cargue automáticamente al seleccionar el USB en el boot menu.
+
+---
+
+## 2. Preparación del medio de arranque (USB)
+
+### 2.1 Identificación del dispositivo
+
+```bash
+lsblk
+```
+
+> ⚠️ Se asume que el pendrive corresponde a `/dev/sdb1`. Ajustar en función del resultado de `lsblk`. **Verificar bien antes de formatear** — un error aquí destruye datos del disco principal.
+
+### 2.2 Comandos ejecutados
+
+```bash
+# 1. Formatear el pendrive en FAT32 (requerimiento de UEFI)
+sudo mkfs.vfat -F 32 /dev/sdb1
+
+# 2. Montar el pendrive
+sudo mount /dev/sdb1 /mnt
+
+# 3. Crear la estructura estandarizada de directorios
+sudo mkdir -p /mnt/EFI/BOOT
+
+# 4. Descargar la UEFI Shell oficial de TianoCore
+sudo wget https://github.com/tianocore/edk2/raw/UDK2018/ShellBinPkg/UefiShell/X64/Shell.efi \
+     -O /mnt/EFI/BOOT/BOOTX64.EFI
+
+# 5. Copiar la aplicación compilada en el TP2 a la raíz del pendrive
+sudo cp ~/uefi_security_lab/aplicacion.efi /mnt/
+
+# 6. Sincronizar buffers y desmontar
+sudo sync
+sudo umount /mnt
+```
+
+### 2.3 Estructura resultante del USB
+
+```
+/ (raíz del pendrive, FAT32)
+├── EFI/
+│   └── BOOT/
+│       └── BOOTX64.EFI   ← UEFI Shell de TianoCore
+└── aplicacion.efi        ← binario compilado en el TP2
+```
+
+## 3. Configuración del firmware (Acer predator PT314-52s)
+
+### 3.1 Acceso al setup
+
+Con la laptop apagada, conectar el USB y encender presionando **F1** repetidamente para ingresar al BIOS/UEFI Setup de Lenovo.
+
+### 3.2 Cambios aplicados
+
+| Sección | Parámetro | Valor anterior | Valor nuevo | Justificación |
+|---|---|---|---|---|
+| **Security → Secure Boot** | Secure Boot | `Enabled` | `Disabled` | Nuestros binarios no están firmados por Microsoft/Lenovo. Con Secure Boot activo, el firmware devolvería `Security Violation` y abortaría la ejecución. |
+| **Startup → UEFI/Legacy Boot** | Boot Mode | (variable) | `UEFI Only` | Forzamos el camino UEFI puro: descartamos CSM/Legacy para que el firmware utilice realmente el cargador `BOOTX64.EFI` y no el MBR. |
+| **Startup → Boot** | USB device | — | Habilitado en la lista | Permite seleccionar el pendrive desde el Boot Menu. |
+
+Guardar y salir con **F10 → Yes**.
+
+
+## 4. Ejecución en Bare Metal
+
+### 4.1 Boot desde el USB
+
+Reiniciar y presionar **F12** para abrir el **Boot Menu**. Seleccionar la entrada correspondiente al pendrive USB (suele aparecer como `USB HDD: <marca del pendrive>`).
+
+El firmware carga `\EFI\BOOT\BOOTX64.EFI` → la **UEFI Shell de TianoCore** queda en pantalla.
+
+### 4.2 Comandos en la Shell
+
+```text
+Shell> FS0:
+FS0:\> ls
+FS0:\> aplicacion.efi
+```
+
+Detalle de cada paso:
+
+- **`FS0:`** — cambia el contexto al primer sistema de archivos detectado (el pendrive). Si hubiera más volúmenes, podrían aparecer como `FS1:`, `FS2:`, etc.
+- **`ls`** — lista el contenido raíz del pendrive. Debe verse `aplicacion.efi` y el directorio `EFI`.
+- **`aplicacion.efi`** — invoca al binario. La Shell lo carga vía `LoadImage()` y lo ejecuta con `StartImage()`.
+
+### 4.3 Salida esperada
+
+```
+Iniciando análisis de seguridad... Breakpoint estático alcanzado.
+```
+
+Esta salida se renderiza directamente sobre el framebuffer mediante `gST->ConOut->OutputString()`, sin ningún sistema operativo intermediario, sin drivers de userland, y sin protecciones del kernel — sólo el firmware UEFI y nuestro código.
+
+### 📸 Evidencia — Ejecución en bare metal
+
+
+![Ejecución de aplicacion.efi](./Uefi_real.jpg)
+
+### 🎥 Video de la ejecución completa
+
+<!-- Insertar enlace al video (YouTube/Drive/local). Si es local, dejar como recurso adjunto. -->
+
+[▶ Ver video de ejecución](./img/video_uefi.mp4)
+
+> Tiempo aproximado: 1–2 min. Se sugiere mostrar: encendido → F12 → selección del USB → Shell → `FS0:` → `ls` → `aplicacion.efi` → mensaje en pantalla.
+
+---
+
+## 5. Conclusiones
+
+1. **Bypass del modelo de confianza**: deshabilitar Secure Boot rompe la cadena de verificación criptográfica del firmware. Esto permite ejecutar binarios arbitrarios pre-OS, lo que es útil para investigación pero ilustra por qué la presencia de Secure Boot es relevante en un modelo de amenaza realista (un atacante con acceso físico podría desactivarlo si el setup no está protegido por contraseña de supervisor).
+
+2. **Superficie de ataque pre-OS**: en el momento en que `aplicacion.efi` se ejecuta, **no existe** un kernel, no existen anillos de privilegio aplicados al userland, no hay ASLR, no hay DEP a nivel de proceso. El binario corre con los servicios *Boot Services* de UEFI disponibles, equivalentes funcionales a "ring 0" sobre el firmware. Cualquier vulnerabilidad explotada aquí compromete al sistema antes incluso de que el bootloader del SO entre en juego.
+
+3. **Reproducibilidad**: el procedimiento es totalmente reproducible en cualquier equipo UEFI x86_64 con la opción de deshabilitar Secure Boot expuesta al usuario. La estructura `\EFI\BOOT\BOOTX64.EFI` es portable entre fabricantes.
+
+4. **Mitigaciones recomendadas en un entorno productivo**:
+   - Mantener Secure Boot **habilitado**.
+   - Configurar contraseña de supervisor (BIOS) para impedir cambios al firmware.
+   - Restringir el orden de boot y deshabilitar el arranque desde USB.
+   - Habilitar `BootGuard` / `Hardware Root of Trust` en plataformas que lo soporten.
+
+---
+
+## 6. Referencias
+
+- UEFI Specification 2.10, sección 3.5 *Boot Manager* y sección 32 *Secure Boot and Driver Signing*.
+- TianoCore EDK II — *ShellBinPkg*: <https://github.com/tianocore/edk2>
+
+---
