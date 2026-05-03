@@ -173,3 +173,151 @@ Eso lo vuelve un objetivo para los desarrolladores de malware:
 2. **Privilegio máximo y previo al SO.** Ejecuta antes que cualquier antivirus o EDR. Para el momento en que el SO terminó de cargar, el bootkit ya tomó las decisiones que quería tomar (ej. desactivar verificaciones, modificar el kernel en vuelo, plantar drivers).
 3. **Invisibilidad para el SO.** Los antivirus convencionales escanean el disco y la RAM "de su lado"; muy pocos inspeccionan las páginas de `RuntimeServicesCode`, porque están marcadas como pertenecientes al firmware y son código que el SO no controla.
 4. **Sobreviven a reinstalaciones del SO.** El bootkit modifica la imagen del firmware en SPI flash; en cada arranque siguiente, el firmware vuelve a copiarse a esas páginas de `RuntimeServicesCode` ya infectadas. El SO ve un sistema "limpio", pero el firmware no lo es.
+
+#  Trabajo Práctico 2: Desarrollo, compilación y análisis de seguridad
+
+## 2.1 Código Fuente
+
+Archivo: aplicacion.c
+
+```c
+#include <efi.h>
+#include <efilib.h>
+
+EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+{
+    InitializeLib(ImageHandle, SystemTable);
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, L"\r\n");
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, L"=====================================\r\n");
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, L"        Claude's Inters              \r\n");
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, L"=====================================\r\n");
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, L"\r\n        >>> grupo: Claude's Inters <<<\r\n\r\n");
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, L"Iniciando analisis de seguridad...\r\n");
+
+    unsigned char code[] = {0xCC};
+    if (code[0] == 0xCC)
+    {
+        SystemTable->ConOut->OutputString(SystemTable->ConOut, L"[OK] Breakpoint estatico alcanzado (INT3)\r\n");
+    }
+
+    SystemTable->ConOut->OutputString(SystemTable->ConOut, L"\r\nEjecucion finalizada.\r\n");
+    return EFI_SUCCESS;
+}
+```
+
+### Pregunta 4 — ¿Por qué OutputString y no printf?
+
+printf pertenece a la libc, que depende del sistema operativo para funcionar. En el entorno UEFI no existe SO, kernel ni syscalls. La única salida disponible es el protocolo ConOut de la EFI_SYSTEM_TABLE, cuya función OutputString es la interfaz de consola que provee el propio firmware. Además, UEFI trabaja con strings UTF-16 (de ahí el prefijo L""), mientras que printf espera ASCII/UTF-8.
+
+---
+
+## 2.2 Compilación — Tres Etapas
+
+### Dependencias previas
+
+```bash
+sudo apt install gnu-efi binutils gcc
+```
+
+### Etapa 1 — Compilar a objeto ELF
+
+```bash
+gcc \
+  -I/usr/include/efi \
+  -I/usr/include/efi/x86_64 \
+  -I/usr/include/efi/protocol \
+  -fpic -ffreestanding -fno-stack-protector \
+  -fno-strict-aliasing -fshort-wchar \
+  -mno-red-zone -maccumulate-outgoing-args \
+  -Wall -c -o aplicacion.o aplicacion.c
+```
+
+### Etapa 2 — Linkear a shared object
+
+```bash
+ld -shared -Bsymbolic \
+  -L/usr/lib \
+  -T /usr/lib/elf_x86_64_efi.lds \
+  /usr/lib/crt0-efi-x86_64.o \
+  aplicacion.o \
+  -o aplicacion.so \
+  -lefi -lgnuefi
+```
+
+El linker script elf_x86_64_efi.lds define el layout de secciones que luego objcopy necesita para construir el PE/COFF.
+
+### Etapa 3 — Convertir a PE/COFF .efi
+
+```bash
+objcopy \
+  -j .text -j .sdata -j .data \
+  -j .dynamic -j .dynsym \
+  -j .rel -j .rela \
+  -j '.rel.*' -j '.rela.*' \
+  -j .reloc \
+  --target=efi-app-x86_64 \
+  aplicacion.so aplicacion.efi
+```
+
+objcopy reempaqueta el shared object ELF extrayendo solo las secciones relevantes y convirtiéndolas al formato PE/COFF que UEFI puede ejecutar.
+
+### Verificación
+
+```bash
+file aplicacion.efi
+```
+
+Salida:
+![1.4.1](img/tp3a1.png)
+---
+
+## 2.3 Análisis de Metadatos y Decompilación
+
+### Metadatos con readelf
+
+```bash
+readelf -h aplicacion.efi
+```
+
+Permite inspeccionar el encabezado del binario y confirmar arquitectura, tipo de ejecutable y punto de entrada.
+
+### Análisis con Ghidra
+
+Se importó aplicacion.efi en Ghidra (File → Import File). Ghidra detectó automáticamente el formato PE COFF. Tras el análisis automático, se navegó a la función efi_main desde el panel Symbol Tree → Functions.
+
+![1.4.1](img/tp3a2.png)
+
+#### Pseudocódigo generado por Ghidra
+
+```c
+
+undefined8 efi_main(longlong param_1)
+
+{
+  longlong unaff_RSI;
+  
+  InitializeLib(param_1);
+  (**(code **)(*(longlong *)(unaff_RSI + 0x40) + 8))(&DAT_0000b000);
+  (**(code **)(*(longlong *)(unaff_RSI + 0x40) + 8))(u_================================_0000b008);
+  (**(code **)(*(longlong *)(unaff_RSI + 0x40) + 8))(u_Claude's_Inters_0000b058);
+  (**(code **)(*(longlong *)(unaff_RSI + 0x40) + 8))(u_================================_0000b008);
+  (**(code **)(*(longlong *)(unaff_RSI + 0x40) + 8))(u_>>>_grupo:_Claude's_Inters_<<<_0000b0a8);
+  (**(code **)(*(longlong *)(unaff_RSI + 0x40) + 8))(u_Iniciando_analisis_de_seguridad._0000b108);
+  (**(code **)(*(longlong *)(unaff_RSI + 0x40) + 8))(u_[OK]_Breakpoint_estatico_alcanza_0000b158);
+  (**(code **)(*(longlong *)(unaff_RSI + 0x40) + 8))(u_Ejecucion_finalizada._0000b1b0);
+  return 0;
+}
+```
+
+#### Observaciones
+ 
+Ghidra no conoce los tipos UEFI, por lo que EFI_STATUS aparece como undefined8 y EFI_SYSTEM_TABLE* como unaff_RSI (unaffected RSI). Cada llamada a OutputString se muestra como una indirección a través de offsets en crudo (0x40 para ConOut, +8 para OutputString) porque Ghidra no tiene las definiciones de structs de UEFI. El bloque if (code[0] == 0xCC) no aparece porque GCC lo eliminó en tiempo de compilación al detectar que la condición siempre es verdadera. Los strings "Claude's Inters" y ">>> grupo: Claude's Inters <<<" son visibles directamente en el pseudocódigo y en Window → Defined Strings.
+
+
+---
+
+### Pregunta 5 — ¿Por qué 0xCC aparece como -52 en Ghidra?
+
+En este caso el if fue eliminado por GCC antes de llegar al binario, por lo que Ghidra no muestra la comparación. De haberla mostrado, 0xCC aparecería como -52 porque Ghidra infiere el tipo como signed char y aplica complemento a dos: el bit más significativo de 1100 1100 es 1, resultando en -(256 - 204) = -52. Esto importa en ciberseguridad porque 0xCC es el opcode de INT 3 (software breakpoint), y un analista que ve -52 puede no reconocerlo, pasando por alto breakpoints inyectados o mecanismos de anti-debugging en el firmware.
+
+---

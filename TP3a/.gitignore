@@ -1,0 +1,4 @@
+uefi_security_lab/ghidra_*/
+uefi_security_lab/*.zip
+uefi_security_lab/*.efi
+uefi_security_lab/*.o
