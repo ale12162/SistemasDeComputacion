@@ -447,13 +447,15 @@ Esta salida se renderiza directamente sobre el framebuffer mediante `gST->ConOut
 ### 📸 Evidencia — Ejecución en bare metal
 
 
-![Ejecución de aplicacion.efi](./Uefi_real.jpg)
+![Ejecución de aplicacion.efi](./img/Uefi_real.jpg)
 
 ### 🎥 Video de la ejecución completa
 
-<!-- Insertar enlace al video (YouTube/Drive/local). Si es local, dejar como recurso adjunto. -->
 
-[▶ Ver video de ejecución](./img/video_uefi.mp4)
+https://github.com/user-attachments/assets/ac0d9df6-2244-4f8a-86cf-ee8f7f9f2785
+
+
+
 
 > Tiempo aproximado: 1–2 min. Se sugiere mostrar: encendido → F12 → selección del USB → Shell → `FS0:` → `ls` → `aplicacion.efi` → mensaje en pantalla.
 
