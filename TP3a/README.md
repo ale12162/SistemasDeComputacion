@@ -326,7 +326,7 @@ En este caso el if fue eliminado por GCC antes de llegar al binario, por lo que 
 
 ## Objetivo
 
-Trasladar el binario `aplicacion.efi` (compilado en el TP2) desde el entorno de desarrollo a una computadora real (Lenovo ThinkPad T450), sorteando las restricciones impuestas por **Secure Boot** y ejecutando el binario directamente desde la **UEFI Shell**, fuera de cualquier sistema operativo.
+Trasladar el binario `aplicacion.efi` (compilado en el TP2) desde el entorno de desarrollo a una computadora real (Acer predator pt314-52s), sorteando las restricciones impuestas por **Secure Boot** y ejecutando el binario directamente desde la **UEFI Shell**, fuera de cualquier sistema operativo.
 
 ---
 
@@ -334,7 +334,7 @@ Trasladar el binario `aplicacion.efi` (compilado en el TP2) desde el entorno de 
 
 ### 1.1 ¿Por qué Secure Boot bloquea nuestro binario?
 
-Secure Boot es un mecanismo definido en la especificación UEFI que verifica, antes de transferir el control, que todo binario `.efi` cargado durante el arranque esté firmado digitalmente por una autoridad cuya clave pública resida en la base de datos `db` del firmware. Habitualmente esta base contiene certificados de **Microsoft** y del **OEM** (en este caso Lenovo).
+Secure Boot es un mecanismo definido en la especificación UEFI que verifica, antes de transferir el control, que todo binario `.efi` cargado durante el arranque esté firmado digitalmente por una autoridad cuya clave pública resida en la base de datos `db` del firmware. Habitualmente esta base contiene certificados de **Microsoft** y del **OEM** (en este caso Acer).
 
 Nuestros binarios no están en esa cadena de confianza:
 
@@ -361,16 +361,15 @@ Cuando un medio removible no posee una entrada NVRAM previa, el firmware busca u
 lsblk
 ```
 
-> ⚠️ Se asume que el pendrive corresponde a `/dev/sdb1`. Ajustar en función del resultado de `lsblk`. **Verificar bien antes de formatear** — un error aquí destruye datos del disco principal.
-
+> en nuestro caso esta en /dev/sda
 ### 2.2 Comandos ejecutados
 
 ```bash
 # 1. Formatear el pendrive en FAT32 (requerimiento de UEFI)
-sudo mkfs.vfat -F 32 /dev/sdb1
+sudo mkfs.vfat -F 32 /dev/sda
 
 # 2. Montar el pendrive
-sudo mount /dev/sdb1 /mnt
+sudo mount /dev/sda /mnt
 
 # 3. Crear la estructura estandarizada de directorios
 sudo mkdir -p /mnt/EFI/BOOT
@@ -401,13 +400,13 @@ sudo umount /mnt
 
 ### 3.1 Acceso al setup
 
-Con la laptop apagada, conectar el USB y encender presionando **F1** repetidamente para ingresar al BIOS/UEFI Setup de Lenovo.
+Con la laptop apagada, se accedio al boot menu mediante apretar F2 en nuestro caso repetidamente para entrar en la configuracion de la BIOS
 
 ### 3.2 Cambios aplicados
 
 | Sección | Parámetro | Valor anterior | Valor nuevo | Justificación |
 |---|---|---|---|---|
-| **Security → Secure Boot** | Secure Boot | `Enabled` | `Disabled` | Nuestros binarios no están firmados por Microsoft/Lenovo. Con Secure Boot activo, el firmware devolvería `Security Violation` y abortaría la ejecución. |
+| **Security → Secure Boot** | Secure Boot | `Enabled` | `Disabled` | Nuestros binarios no están firmados por Microsoft/Acer. Con Secure Boot activo, el firmware devolvería `Security Violation` y abortaría la ejecución. |
 | **Startup → UEFI/Legacy Boot** | Boot Mode | (variable) | `UEFI Only` | Forzamos el camino UEFI puro: descartamos CSM/Legacy para que el firmware utilice realmente el cargador `BOOTX64.EFI` y no el MBR. |
 | **Startup → Boot** | USB device | — | Habilitado en la lista | Permite seleccionar el pendrive desde el Boot Menu. |
 
@@ -418,7 +417,7 @@ Guardar y salir con **F10 → Yes**.
 
 ### 4.1 Boot desde el USB
 
-Reiniciar y presionar **F12** para abrir el **Boot Menu**. Seleccionar la entrada correspondiente al pendrive USB (suele aparecer como `USB HDD: <marca del pendrive>`).
+Reiniciar y presionar **F12** para abrir el **Boot Menu**. Seleccionar la entrada correspondiente al pendrive USB.
 
 El firmware carga `\EFI\BOOT\BOOTX64.EFI` → la **UEFI Shell de TianoCore** queda en pantalla.
 
@@ -442,7 +441,7 @@ Detalle de cada paso:
 Iniciando análisis de seguridad... Breakpoint estático alcanzado.
 ```
 
-Esta salida se renderiza directamente sobre el framebuffer mediante `gST->ConOut->OutputString()`, sin ningún sistema operativo intermediario, sin drivers de userland, y sin protecciones del kernel — sólo el firmware UEFI y nuestro código.
+Esta salida se renderiza directamente sobre el framebuffer mediante `gST->ConOut->OutputString()`, sin ningún sistema operativo intermediario, sin drivers de userland, y sin protecciones del kernel — sólo el firmware UEFI y nuestro código. Ademas se agrego el nombre de nuestro grupo en el print previo al analisis de seguridad
 
 ### 📸 Evidencia — Ejecución en bare metal
 
@@ -452,42 +451,40 @@ Esta salida se renderiza directamente sobre el framebuffer mediante `gST->ConOut
 ### 🎥 Video de la ejecución completa
 
 
+
 https://github.com/user-attachments/assets/ac0d9df6-2244-4f8a-86cf-ee8f7f9f2785
 
-
-
-
-> Tiempo aproximado: 1–2 min. Se sugiere mostrar: encendido → F12 → selección del USB → Shell → `FS0:` → `ls` → `aplicacion.efi` → mensaje en pantalla.
+En el video puede verse todo el proceso de booteo y ejecucion de aplicacion.efi en la shell
 
 ---
+# Conclusiones generales
 
- Conclusiones generales
-
-A lo largo de los tres trabajos prácticos recorrimos el ciclo completo de una aplicación UEFI: desde >
+A lo largo de los tres trabajos prácticos recorrimos el ciclo completo de una aplicación UEFI: desde entender cómo el firmware abstrae el hardware, pasando por el desarrollo y compilación de un binario propio, hasta su ejecución sobre una máquina física real. Cada etapa aportó una mirada distinta sobre el mismo entorno y, en conjunto, permiten extraer varias conclusiones.
 
 ## 1. UEFI como sistema operativo mínimo pre-OS
 
-El TP1 dejó en claro que UEFI no es simplemente un "BIOS moderno", sino un entorno de ejecución compl>
+El TP1 dejó en claro que UEFI no es simplemente un "BIOS moderno", sino un entorno de ejecución completo con su propio modelo de drivers (handles + protocolos), gestor de memoria, sistema de archivos (FAT), variables persistentes (NVRAM) y consola interactiva (Shell). El reemplazo de las viejas interrupciones del BIOS (`int 0x10`, `int 0x13`) por una API estructurada de protocolos no es un detalle cosmético: redefine cómo el firmware media el acceso al hardware y abre la puerta a mecanismos como Secure Boot, que dependen justamente de que ningún programa pueda saltearse esa mediación.
 
 ## 2. Del código fuente al binario ejecutable por firmware
 
-El TP2 mostró que producir un `.efi` no es compilar "un programa más". Al no haber libc ni syscalls, >
+El TP2 mostró que producir un `.efi` no es compilar "un programa más". Al no haber libc ni syscalls, el código depende exclusivamente de la `EFI_SYSTEM_TABLE` y los protocolos que el firmware expone (de ahí `OutputString` en lugar de `printf`, y UTF-16 en lugar de ASCII). El proceso de tres etapas (GCC → ld con linker script específico → objcopy a PE/COFF) refleja una realidad importante: el formato ejecutable de UEFI es PE/COFF (heredado de Windows), no ELF, y eso condiciona toda la toolchain. El análisis con Ghidra agregó la perspectiva del lado defensivo: ver cómo se ve el binario para un analista, por qué los tipos UEFI se pierden en la decompilación y cómo detalles aparentemente menores (como `0xCC` apareciendo como `-52`) pueden ocultar señales relevantes en un contexto de ciberseguridad.
 
 ## 3. Ejecución en bare metal y materialización de la superficie de ataque
 
-El TP3 cerró el ciclo llevando el binario a una máquina real. Lo más significativo no fue que la apli>
+El TP3 cerró el ciclo llevando el binario a una máquina real. Lo más significativo no fue que la aplicación corriera, sino el contexto en el que lo hizo: sin sistema operativo, sin anillos de privilegio aplicados, sin ASLR, sin DEP a nivel de proceso, sin antivirus, sin EDR. La salida `Breakpoint estático alcanzado` en pantalla es trivial; lo no trivial es que ese mismo nivel de acceso es el que tiene cualquier código que se ejecute pre-OS. Eso conecta directamente con lo discutido en el TP1 sobre `RuntimeServicesCode` y los bootkits: no es un escenario teórico, es exactamente el escenario que recreamos en laboratorio.
 
 ## 4. Secure Boot como pieza central del modelo de confianza
 
-Los tres TPs convergen en una conclusión: **Secure Boot no es opcional en un modelo de amenaza realis>
+Los tres TPs convergen en una conclusión: **Secure Boot no es opcional en un modelo de amenaza realista**. En el TP1 vimos que el firmware delega la validación criptográfica antes de ejecutar cualquier `Boot####`. En el TP2 produjimos un binario sin firmar, perfectamente funcional. En el TP3 tuvimos que deshabilitar Secure Boot para poder correrlo. Esa secuencia ilustra de punta a punta qué es lo que Secure Boot protege: impide exactamente lo que hicimos nosotros (ejecutar código arbitrario pre-OS) cuando el atacante no tiene una clave en `db`. Por eso las mitigaciones en entornos productivos pasan por mantenerlo habilitado, proteger el setup con contraseña de supervisor y, cuando esté disponible, sumar Boot Guard o un Hardware Root of Trust.
 
 ## 5. Aprendizajes transversales
 
-- **El firmware es código**, y como todo código tiene bugs, decisiones de diseño y superficies de ata>
-- **La separación SO / firmware es más porosa de lo que parece**: los Runtime Services siguen vivos d>
-- **Las herramientas estándar alcanzan**: con QEMU + OVMF, gnu-efi, Ghidra y un pendrive se puede rec>
+- **El firmware es código**, y como todo código tiene bugs, decisiones de diseño y superficies de ataque. Tratarlo como una caja negra inmutable es una mala estrategia de seguridad.
+- **La separación SO / firmware es más porosa de lo que parece**: los Runtime Services siguen vivos durante toda la ejecución del SO, lo que convierte al firmware en parte de la TCB (Trusted Computing Base) de manera permanente, no solo durante el boot.
+- **Las herramientas estándar alcanzan**: con QEMU + OVMF, gnu-efi, Ghidra y un pendrive se puede recorrer todo el ciclo. La barrera para investigar (o atacar) este nivel del stack es bastante más baja de lo que suele suponerse, lo que refuerza la importancia de las contramedidas a nivel de plataforma.
 
-En síntesis, los tres TPs funcionan como un recorrido coherente: el TP1 explica el "qué" y el "cómo" >
+En síntesis, los tres TPs funcionan como un recorrido coherente: el TP1 explica el "qué" y el "cómo" del entorno, el TP2 muestra cómo producir código que vive en él, y el TP3 demuestra las implicancias prácticas de seguridad cuando ese código se ejecuta sobre hardware real. La conclusión más importante no es técnica sino conceptual: la seguridad del sistema operativo es, en el mejor de los casos, tan buena como la del firmware sobre el que se apoya.
+
 
 ## 6. Referencias
 
