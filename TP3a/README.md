@@ -446,7 +446,7 @@ Esta salida se renderiza directamente sobre el framebuffer mediante `gST->ConOut
 ### 📸 Evidencia — Ejecución en bare metal
 
 
-![Ejecución de aplicacion.efi](./img/Uefi_real.jpg)
+![Ejecución de aplicacion.efi](./img/Uefi_real.jpeg)
 
 ### 🎥 Video de la ejecución completa
 
