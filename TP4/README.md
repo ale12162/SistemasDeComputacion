@@ -12,7 +12,7 @@ _Baccino, Luca; Painenao, Juan Manuel; Alejandro R. Stangaferro;_
 _Javier A. Jorge; Miguel A. Solinas;_
 **2026**
 
-### 5. ¿Qué diferencia existe entre un módulo y un programa?
+# Punto 5 — ¿Qué diferencia existe entre un módulo y un programa?
 
 Existen tres diferencias fundamentales entre un módulo del kernel y un programa de usuario convencional:
 
