@@ -121,6 +121,37 @@ El código de salida **139 = 128 + 11**, donde 11 es el número de `SIGSEGV`. Es
 
 Si un **módulo del kernel** comete un acceso ilegal, no hay un proceso "padre" que lo termine. El resultado es un **Kernel Oops** (queda registrado en `dmesg` con stack trace y el kernel sigue marcado como *tainted*) o, en casos graves, un **Kernel Panic** que congela el sistema.
 
+# Punto 11 — Artículo de Ars Technica sobre el parche de Microsoft y GRUB
+
+> Referencia: https://arstechnica.com/security/2024/08/a-patch-microsoft-spent-2-years-preparing-is-making-a-mess-for-some-linux-users/
+
+## 11.a) ¿Cuál fue la consecuencia principal del parche de Microsoft sobre GRUB en sistemas con arranque dual?
+
+En el Patch Tuesday de **agosto de 2024**, Microsoft distribuyó una actualización SBAT (Secure Boot Advanced Targeting) destinada a mitigar la vulnerabilidad **CVE-2022-2601**, un *buffer overflow* en GRUB2 que permitía bypassear Secure Boot.
+
+Microsoft anunció que el parche **no se aplicaría** a equipos con arranque dual, pero el mecanismo de detección de dual-boot **falló**, y la actualización se instaló en muchas máquinas con Windows + Linux. Como consecuencia, esos equipos **no podían iniciar Linux**, mostrando el error:
+
+```
+Verifying shim SBAT data failed: Security Policy Violation.
+Something has gone seriously wrong: SBAT self-check failed: Security Policy Violation.
+```
+
+Afectó a las principales distribuciones (Ubuntu, Linux Mint, Debian, Zorin OS, Puppy Linux, entre otras). Microsoft tardó hasta **mayo de 2025** en lanzar la solución definitiva.
+
+## 11.b) ¿Qué implicancia tiene desactivar Secure Boot como solución al problema?
+
+Desactivar Secure Boot fue la forma más rápida y confiable de recuperar el arranque de Linux, pero tiene un costo importante en seguridad:
+
+- Se pierde la **protección contra bootkits y rootkits** que infectan etapas tempranas del arranque (firmware/bootloader).
+- Se rompe la **cadena de confianza** firmware → bootloader → kernel → módulos.
+- Es **cambiar seguridad por funcionalidad**: la máquina queda más expuesta a malware persistente.
+
+## 11.c) ¿Cuál es el propósito principal del Secure Boot en el proceso de arranque?
+
+Secure Boot es una característica del firmware **UEFI** cuyo objetivo es **garantizar que sólo se ejecute durante el arranque código firmado digitalmente** por una autoridad de confianza. Establece una cadena de verificación criptográfica: el firmware verifica el bootloader, el bootloader verifica el kernel, y el kernel verifica los módulos.
+
+Su propósito es proteger contra **bootkits, rootkits y malware persistente** que intenten ejecutarse antes de que el sistema operativo y sus defensas (antivirus, EDR) tengan oportunidad de cargarse.
+
 # Desafío #1
 
 ## ¿Qué es checkinstall y para qué sirve?
