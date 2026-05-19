@@ -277,3 +277,81 @@ cat /sys/kernel/security/lockdown               # modo activo entre [ ]
 ```
 
 Con esta configuración, ni un atacante con privilegios de root puede cargar un módulo malicioso, lo que dificulta enormemente desplegar un rootkit a nivel kernel. La única vía sería romper Secure Boot o reemplazar el firmware, lo cual eleva drásticamente la barrera técnica del ataque.
+
+# Desafío #2
+
+## ¿Qué funciones tiene disponibles un programa y un módulo?
+
+Un **programa de usuario** dispone de:
+
+- La **librería estándar de C (libc)**: `printf`, `scanf`, `malloc`/`free`, `fopen`, `strcpy`, etc.
+- La API **POSIX**: `open`, `read`, `write`, `fork`, `exec`, `pipe`, `mmap`, hilos POSIX, señales, etc.
+- Cualquier **librería externa** enlazada (OpenSSL, SDL, GTK, Qt, libcurl, ...).
+- Para acceder al hardware o a recursos del sistema usa **llamadas al sistema** (~400 en Linux), que son la única vía hacia el kernel.
+
+Un **módulo del kernel** **NO** tiene libc ni POSIX. Sólo dispone de la **API interna del kernel**, incluida desde headers como `<linux/module.h>`, `<linux/kernel.h>`, `<linux/slab.h>`. Funciones más comunes:
+
+- `printk()` para imprimir al buffer del kernel (visible con `dmesg`).
+- `kmalloc()` / `kfree()` para memoria dinámica del kernel.
+- `copy_to_user()` / `copy_from_user()` para transferir datos entre kernel y usuario.
+- `register_chrdev()`, `register_blkdev()` para registrar dispositivos.
+- `request_irq()` para manejar interrupciones de hardware.
+- Primitivas de sincronización: `mutex_lock()`, `spin_lock()`, semáforos.
+
+## Espacio de usuario o espacio del kernel
+
+Linux divide la memoria virtual y los privilegios en dos zonas:
+
+| | Espacio de usuario | Espacio del kernel |
+|---|---|---|
+| Privilegio CPU | Ring 3 (x86) | Ring 0 (x86) |
+| Acceso a hardware | Indirecto, vía syscalls | Directo y total |
+| Memoria visible | Solo la del propio proceso | Toda la RAM |
+| Si falla | Muere el proceso (SIGSEGV) | Kernel Oops / Panic |
+| Ejemplos | Firefox, bash, gcc | Drivers, scheduler, FS |
+
+El paso de un espacio al otro se da por tres mecanismos:
+- **Syscalls**: el proceso solicita un servicio al kernel.
+- **Interrupciones**: el hardware pide atención.
+- **Excepciones**: errores como page faults o división por cero.
+
+## Espacio de datos
+
+Cuando un programa se ejecuta, su memoria virtual se organiza en segmentos:
+
+- **Text**: código ejecutable, sólo lectura.
+- **Data**: variables globales/estáticas inicializadas (`int x = 5;`).
+- **BSS**: variables globales/estáticas no inicializadas (se ponen a cero al cargarse).
+- **Heap**: memoria dinámica con `malloc`. Crece hacia arriba.
+- **Stack**: variables locales, parámetros, direcciones de retorno. Crece hacia abajo.
+- **Memoria mapeada**: librerías compartidas, archivos abiertos con `mmap`.
+
+En el **kernel**, esta organización no es la misma: el módulo se carga en una zona reservada y comparte el espacio con el resto del kernel. Las direcciones virtuales del kernel **no son las mismas** que las de los procesos, por eso para transferir datos entre ambos espacios hay que usar `copy_to_user()` / `copy_from_user()` y nunca derefenciar punteros de usuario directamente desde el kernel.
+
+## Drivers e investigación de `/dev`
+
+En Linux **todo es un archivo**: los dispositivos se exponen como entradas en `/dev`, y los programas interactúan con ellos usando las syscalls habituales (`open`, `read`, `write`, `ioctl`).
+
+Cada entrada en `/dev` tiene:
+- **Tipo**: `c` (carácter, byte a byte: teclados, terminales) o `b` (bloque, en bloques fijos: discos).
+- **Major number**: identifica qué driver maneja el dispositivo.
+- **Minor number**: identifica la instancia concreta dentro del driver.
+
+Ejemplo:
+
+```
+$ ls -l /dev/sda /dev/null /dev/tty
+brw-rw---- 1 root disk    8, 0  /dev/sda     (b = bloque, major 8 = SCSI/SATA)
+crw-rw-rw- 1 root root    1, 3  /dev/null    (c = caracter, major 1 minor 3)
+crw-rw-rw- 1 root tty     5, 0  /dev/tty     (c = caracter, major 5 minor 0)
+```
+
+Ejemplos típicos:
+- `/dev/null` → descarta toda escritura.
+- `/dev/zero` → produce bytes en cero infinitamente.
+- `/dev/random`, `/dev/urandom` → generadores aleatorios.
+- `/dev/sda`, `/dev/sda1` → disco SATA y su primera partición.
+- `/dev/tty`, `/dev/pts/*` → terminales.
+- `/dev/input/event*` → eventos de teclado, mouse, joystick.
+
+Un **driver** es el software que permite al kernel comunicarse con un dispositivo de hardware específico. Cuando se desarrolla uno nuevo, generalmente se implementa como **módulo del kernel** que se registra ante el subsistema correspondiente (por ejemplo `register_chrdev`) y crea su nodo en `/dev`. Así los programas de usuario pueden abrirlo y hablar con el hardware vía syscalls estándar.
