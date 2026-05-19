@@ -140,11 +140,7 @@ Afectó a las principales distribuciones (Ubuntu, Linux Mint, Debian, Zorin OS, 
 
 ## 11.b) ¿Qué implicancia tiene desactivar Secure Boot como solución al problema?
 
-Desactivar Secure Boot fue la forma más rápida y confiable de recuperar el arranque de Linux, pero tiene un costo importante en seguridad:
-
-- Se pierde la **protección contra bootkits y rootkits** que infectan etapas tempranas del arranque (firmware/bootloader).
-- Se rompe la **cadena de confianza** firmware → bootloader → kernel → módulos.
-- Es **cambiar seguridad por funcionalidad**: la máquina queda más expuesta a malware persistente.
+Si bien desactivar Secure Boot permite evadir la restricción del parche y volver a arrancar Linux, la implicancia directa es una degradación crítica en la seguridad del equipo. Al apagar esta característica, se elimina la barrera defensiva previa a la carga del sistema operativo, dejando a la computadora vulnerable frente a la ejecución de código no autorizado o malware avanzado (como bootkits y rootkits) que opera desde las capas más profundas del hardware.
 
 ## 11.c) ¿Cuál es el propósito principal del Secure Boot en el proceso de arranque?
 
