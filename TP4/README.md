@@ -120,3 +120,133 @@ El código de salida **139 = 128 + 11**, donde 11 es el número de `SIGSEGV`. Es
 ## Diferencia con un módulo de kernel
 
 Si un **módulo del kernel** comete un acceso ilegal, no hay un proceso "padre" que lo termine. El resultado es un **Kernel Oops** (queda registrado en `dmesg` con stack trace y el kernel sigue marcado como *tainted*) o, en casos graves, un **Kernel Panic** que congela el sistema.
+
+# Desafío #1
+
+## ¿Qué es checkinstall y para qué sirve?
+
+`checkinstall` es una herramienta que envuelve la instalación de software compilado desde fuentes (`make install`) y, en lugar de copiar archivos sueltos al sistema, genera un **paquete nativo del distribuidor** (`.deb` en Debian/Ubuntu, `.rpm` en Red Hat/Fedora, `.tgz` en Slackware). Esto permite:
+
+- **Registrar** la instalación en el gestor de paquetes del sistema (`dpkg -l`, `rpm -qa`).
+- **Desinstalar limpiamente** con `dpkg -r` o `rpm -e`.
+- **Distribuir** el paquete a otras máquinas.
+- Asociar **metadatos** (versión, mantenedor, dependencias, licencia) al software.
+
+Sin `checkinstall`, los archivos copiados por `make install` quedan dispersos y son difíciles de remover de forma confiable.
+
+## Empaquetado de un hello world
+
+### Programa y Makefile
+
+```c
+// hello.c
+#include <stdio.h>
+int main(void) {
+    printf("Hola mundo - empaquetado con checkinstall - TP4\n");
+    return 0;
+}
+```
+
+```makefile
+# Makefile
+PREFIX ?= /usr/local
+
+hello: hello.c
+	gcc -o hello hello.c
+
+install: hello
+	install -D -m 755 hello $(DESTDIR)$(PREFIX)/bin/hello
+
+clean:
+	rm -f hello
+```
+
+### Procedimiento
+
+```bash
+make
+sudo checkinstall --pkgname=hello-tp4 --pkgversion=1.0 --backup=no --default
+```
+
+### Salida de checkinstall (relevante)
+
+```
+**** Debian package creation selected ***
+
+This package will be built according to these values:
+
+0 -  Maintainer: [ root@Luca ]
+1 -  Summary: [ Package created with checkinstall 1.6.3 ]
+2 -  Name:    [ hello-tp4 ]
+3 -  Version: [ 1.0 ]
+4 -  Release: [ 1 ]
+5 -  License: [ GPL ]
+...
+
+========================= Installation results ===========================
+install -D -m 755 hello /usr/local/bin/hello
+
+======================== Installation successful ==========================
+
+Copying files to the temporary directory...OK
+Stripping ELF binaries and libraries...OK
+Building Debian package...OK
+Installing Debian package...OK
+
+Done. The new package has been installed and saved to
+/home/esqueletinho/tp4/desafio1/hello-tp4_1.0-1_amd64.deb
+```
+
+### Verificación
+
+```
+$ ls -lh *.deb
+-rw-r--r-- 1 root root 2.1K May 19 23:05 hello-tp4_1.0-1_amd64.deb
+
+$ dpkg -l | grep hello-tp4
+ii  hello-tp4    1.0-1    amd64    Package created with checkinstall 1.6.3
+
+$ which hello
+/usr/local/bin/hello
+
+$ hello
+Hola mundo - empaquetado con checkinstall - TP4
+```
+
+### Desinstalación
+
+```
+$ sudo dpkg -r hello-tp4
+Removing hello-tp4 (1.0-1) ...
+
+$ which hello
+(sin salida → ya no está en el sistema)
+```
+
+El paquete `.deb` queda incluido en el repositorio del grupo como evidencia.
+
+---
+
+## Seguridad del kernel: evitar cargar módulos no firmados y rootkits
+
+### ¿Qué es un rootkit?
+
+Un **rootkit** es software malicioso diseñado para obtener y mantener acceso privilegiado a un sistema **ocultando su presencia**. Los más peligrosos son los de **nivel kernel**, que se cargan como módulos (LKM) y, al ejecutarse en ring 0, pueden modificar las estructuras internas del sistema operativo para esconder sus propios procesos, archivos, conexiones de red y módulos del listado de `lsmod`. Resultan casi indetectables desde el espacio de usuario porque son ellos mismos los que responden a las consultas.
+
+### Defensa: exigir firma de módulos
+
+Linux permite **rechazar cualquier módulo que no esté firmado** con una clave en la que el kernel confíe. La defensa combina cuatro capas:
+
+1. **Secure Boot activo en UEFI**: establece la cadena de confianza desde el firmware → bootloader → kernel.
+2. **Parámetro de arranque `module.sig_enforce=1`**: hace que el kernel **rechace cualquier módulo sin firma válida**, incluso si lo intenta cargar root.
+3. **`lockdown=confidentiality`** o `integrity`: restringe operaciones de root que podrían modificar el kernel en runtime (acceso a `/dev/mem`, `kexec`, escritura a registros MSR, etc.).
+4. **Claves confiables**: las del distribuidor (Canonical, Red Hat) y las **MOK** (Machine Owner Keys) importadas por el usuario con `mokutil --import`.
+
+Verificación de que la protección está activa:
+
+```bash
+cat /sys/module/module/parameters/sig_enforce   # debería decir Y
+cat /sys/kernel/security/lockdown               # modo activo entre [ ]
+```
+
+Con esta configuración, ni un atacante con privilegios de root puede cargar un módulo malicioso, lo que dificulta enormemente desplegar un rootkit a nivel kernel. La única vía sería romper Secure Boot o reemplazar el firmware, lo cual eleva drásticamente la barrera técnica del ataque.
