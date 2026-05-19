@@ -20,22 +20,20 @@ Existen tres diferencias fundamentales entre un módulo del kernel y un programa
 * **Propósito y ciclo de vida:** Mientras que un programa es una aplicación diseñada para cumplir una tarea específica ejecutándose de principio a fin, un módulo es un fragmento de código diseñado para cargarse (ej. `insmod`) y descargarse (ej. `rmmod`) en el kernel de forma dinámica. Su función principal es extender la funcionalidad del sistema operativo sobre la marcha (como agregar un nuevo controlador de dispositivo) sin necesidad de compilar un kernel monolítico inmenso ni tener que reiniciar la máquina.
 * **Impacto de los errores (Criticidad):** En un programa convencional, si se comete un error grave de acceso a memoria, el sistema operativo aísla el fallo, detiene únicamente ese proceso (generando un *segmentation fault*) y el resto del equipo sigue funcionando. En un módulo, al operar en el nivel de máximo privilegio, un error similar (como el uso de un puntero salvaje) no puede ser contenido; puede corromper estructuras de datos críticas de otros procesos, dañar el sistema de archivos o provocar un colapso total del sistema operativo (*Kernel Panic*), lo que obliga a reiniciar físicamente el equipo.
 
-# Punto 6 — Llamadas al sistema de un "hello world" en C
+# Punto 6 — ¿Cómo ver las llamadas al sistema que realiza un hello world en C?
 
-## ¿Cómo ver las llamadas al sistema que realiza un programa?
+Con la herramienta **`strace`**, que intercepta y muestra todas las syscalls que ejecuta un proceso.
 
-Para observar las **llamadas al sistema (syscalls)** que ejecuta un programa de usuario se utiliza la herramienta **`strace`**, que intercepta y registra cada syscall realizada por el proceso junto con sus argumentos y valor de retorno. Es la forma estándar en Linux de depurar interacciones entre un programa y el kernel.
+```bash
+gcc hello.c -o hello
+strace ./hello              # imprime el trace por pantalla
+strace -o trace.txt ./hello # guarda el trace en un archivo
+strace -c ./hello           # muestra un resumen con conteo de syscalls
+```
 
-Las opciones más útiles son:
+## Evidencia
 
-- `strace ./programa` → muestra todas las syscalls por pantalla.
-- `strace -o archivo.txt ./programa` → guarda la salida en un archivo.
-- `strace -c ./programa` → muestra un resumen estadístico (cantidad de llamadas, tiempo, errores por syscall).
-- `strace -e openat ./programa` → filtra por una syscall específica.
-
-## Procedimiento realizado
-
-Se creó un programa mínimo en C que imprime un mensaje por pantalla:
+Programa usado:
 
 ```c
 #include <stdio.h>
@@ -45,50 +43,7 @@ int main(void) {
 }
 ```
 
-Se compiló y se trazó:
-
-```bash
-gcc hello.c -o hello
-strace -o trace_completo.txt ./hello
-strace -c -o trace_resumen.txt ./hello
-```
-
-## Salida — Trace completo (primeras 30 líneas)
-
-```
-execve("./hello", ["./hello"], 0x7ffc266665b0 /* 28 vars */) = 0
-brk(NULL)                               = 0x5a167e93e000
-mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7d5387a80000
-access("/etc/ld.so.preload", R_OK)      = -1 ENOENT (No such file or directory)
-openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
-fstat(3, {st_mode=S_IFREG|0644, st_size=32867, ...}) = 0
-mmap(NULL, 32867, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7d5387a77000
-close(3)                                = 0
-openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
-read(3, "\177ELF\2\1\1\3\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\220\243\2\0\0\0\0\0"..., 832) = 832
-pread64(3, "...", 784, 64) = 784
-fstat(3, {st_mode=S_IFREG|0755, st_size=2125328, ...}) = 0
-pread64(3, "...", 784, 64) = 784
-mmap(NULL, 2170256, PROT_READ, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x7d5387800000
-mmap(0x7d5387828000, 1605632, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x28000) = 0x7d5387828000
-mmap(0x7d53879b0000, 323584, PROT_READ, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x1b0000) = 0x7d53879b0000
-mmap(0x7d53879ff000, 24576, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x1fe000) = 0x7d53879ff000
-mmap(0x7d5387a05000, 52624, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x7d5387a05000
-close(3)                                = 0
-mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7d5387a74000
-arch_prctl(ARCH_SET_FS, 0x7d5387a74740) = 0
-set_tid_address(0x7d5387a74a10)         = 2514
-set_robust_list(0x7d5387a74a20, 24)     = 0
-rseq(0x7d5387a75060, 0x20, 0, 0x53053053) = 0
-mprotect(0x7d53879ff000, 16384, PROT_READ) = 0
-mprotect(0x5a167463d000, 4096, PROT_READ) = 0
-mprotect(0x7d5387ab8000, 8192, PROT_READ) = 0
-prlimit64(0, RLIMIT_STACK, NULL, {rlim_cur=8192*1024, rlim_max=RLIM64_INFINITY}) = 0
-munmap(0x7d5387a77000, 32867)           = 0
-fstat(1, {st_mode=S_IFCHR|0620, st_rdev=makedev(0x88, 0), ...}) = 0
-```
-
-## Salida — Resumen estadístico (`strace -c`)
+Resumen obtenido con `strace -c ./hello`:
 
 ```
 % time     seconds  usecs/call     calls    errors syscall
@@ -115,37 +70,53 @@ fstat(1, {st_mode=S_IFCHR|0620, st_rdev=makedev(0x88, 0), ...}) = 0
 100.00    0.000159           4        34         1 total
 ```
 
-## Análisis de las syscalls observadas
+Un simple "hola mundo" generó **34 syscalls**, de las cuales sólo una (`write`) corresponde al `printf`. El resto son del cargador dinámico y la inicialización de la libc.
 
-Aunque el programa en C parece trivial — una sola línea de `printf` —, su ejecución implicó **34 llamadas al sistema** distintas. Esto evidencia que un programa de usuario nunca interactúa directamente con el hardware: cada operación "simple" se traduce en pedidos al kernel.
+# Punto 7 — ¿Qué es un segmentation fault? ¿Cómo lo maneja el kernel y cómo lo hace un programa?
 
-Las syscalls observadas pueden agruparse en cuatro fases:
+## ¿Qué es?
 
-**1. Carga del proceso**
-- `execve` — el shell le pide al kernel que reemplace su imagen por la del binario `./hello`. Es la syscall que efectivamente "inicia" el programa.
+Una **violación de acceso a memoria**: el programa intentó leer o escribir en una dirección virtual a la que no tiene permiso (memoria no mapeada, un puntero `NULL`, una región de sólo lectura, o fuera de los segmentos asignados al proceso).
 
-**2. Configuración del cargador dinámico**
-- `access("/etc/ld.so.preload")` — verifica si hay librerías a precargar (en este caso no, retorna `ENOENT`).
-- `openat`, `fstat`, `mmap`, `close` sobre `/etc/ld.so.cache` — abre el caché del enlazador dinámico para localizar librerías.
-- `openat` sobre `/lib/x86_64-linux-gnu/libc.so.6` — abre la **librería estándar de C** y la mapea en memoria con `mmap` (varias regiones: código ejecutable, datos de sólo lectura, datos modificables).
+## Cómo lo maneja el kernel
 
-**3. Inicialización del entorno de ejecución**
-- `arch_prctl(ARCH_SET_FS, ...)` — configura el registro `FS` para acceso a Thread Local Storage.
-- `set_tid_address`, `set_robust_list`, `rseq` — configuran estructuras del kernel asociadas al hilo (necesarias para señales, mutexes, etc.).
-- `mprotect` (varias veces) — ajusta los permisos de páginas de memoria (típicamente RELRO: marca como sólo lectura zonas que ya no deben modificarse).
-- `brk` — ajusta el tamaño del heap.
-- `getrandom` — obtiene aleatoriedad para mitigaciones de seguridad como ASLR/Stack Canaries.
-- `prlimit64` — consulta el límite de tamaño de stack.
+1. La **MMU** (hardware del CPU) detecta el acceso ilegal y genera una excepción de tipo *page fault*.
+2. El handler de page fault del kernel evalúa si el acceso es legítimo (página válida pero no presente en RAM → la trae del swap) o realmente inválido.
+3. Si es inválido, el kernel envía al proceso la señal **`SIGSEGV`** (signal 11).
 
-**4. Ejecución del `main()` y finalización**
-- `fstat(1, ...)` — la libc verifica el tipo del descriptor 1 (stdout) para decidir si bufferizar.
-- `write(1, "Hola mundo desde TP4\n", 21)` — **la única syscall del `printf`**: vuelca el texto a la salida estándar.
-- `munmap` — libera memoria mapeada que ya no necesita.
-- `exit_group` — termina todos los hilos del proceso y devuelve el control al kernel.
+## Cómo lo maneja el programa
 
-## Observaciones
+- Por defecto, el manejador de `SIGSEGV` **termina el proceso** y genera un *core dump* (si `ulimit -c` lo permite) para depuración con `gdb`.
+- El programa puede **capturar** la señal con `signal()` o `sigaction()` y manejarla, aunque no es buena práctica porque tras un segfault el estado de la memoria queda inconsistente.
 
-- De las 34 syscalls, **sólo una corresponde realmente a lo que el programador escribió** (`write`, invocada por `printf`). Las otras 33 son trabajo "invisible" del cargador dinámico y la inicialización de la libc.
-- La syscall `write` consumió **el 20,75% del tiempo total** a pesar de ser una sola, porque escribir a una terminal involucra al driver de TTY.
-- El error reportado (`1 errors` en `access`) es esperado: se intentó abrir `/etc/ld.so.preload`, que normalmente no existe.
-- Este experimento muestra concretamente la frontera entre **espacio de usuario** y **espacio del kernel**: cada `syscall` listada es un cruce de esa frontera.
+## Evidencia
+
+Programa usado:
+
+```c
+#include <stdio.h>
+
+int main(void) {
+    int *p = NULL;
+    printf("Voy a derefenciar un puntero NULL...\n");
+    *p = 42;
+    printf("Esta linea nunca se ejecuta\n");
+    return 0;
+}
+```
+
+Ejecución:
+
+```
+$ ./segfault
+Voy a derefenciar un puntero NULL...
+Segmentation fault (core dumped)
+$ echo "Codigo de salida: $?"
+Codigo de salida: 139
+```
+
+El código de salida **139 = 128 + 11**, donde 11 es el número de `SIGSEGV`. Es la convención de bash para indicar que el proceso fue terminado por una señal.
+
+## Diferencia con un módulo de kernel
+
+Si un **módulo del kernel** comete un acceso ilegal, no hay un proceso "padre" que lo termine. El resultado es un **Kernel Oops** (queda registrado en `dmesg` con stack trace y el kernel sigue marcado como *tainted*) o, en casos graves, un **Kernel Panic** que congela el sistema.
