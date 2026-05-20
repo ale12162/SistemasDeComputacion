@@ -12,6 +12,71 @@ _Baccino, Luca; Painenao, Juan Manuel; Alejandro R. Stangaferro;_
 _Javier A. Jorge; Miguel A. Solinas;_
 **2026**
 
+
+# Punto 1 - ¿Qué diferencias se pueden observar entre los dos modinfo ?
+
+```
+modinfo mimodulo.ko
+```
+
+
+![Act1](./img/act11.png)
+
+```
+modinfo /lib/modules/$(uname -r)/kernel/crypto/des_generic.ko
+```
+
+![Act1](./img/act12.png)
+
+Las principales diferencias son:
+
+Procedencia y trazabilidad
+
+- filename: mimodulo.ko está en /home/juanma/.../TP4/part1/module/ (directorio del usuario, módulo out-of-tree); des_generic.ko está en /lib/modules/6.8.0-111-generic/kernel/crypto/ (árbol oficial del kernel instalado por la distribución).
+- intree: presente solo en des_generic.ko con valor Y, indica que es un módulo distribuido con el kernel oficial. mimodulo.ko no tiene este campo.
+- alias: des_generic.ko declara 8 aliases (crypto-des, des3_ede, etc.) que udev/modprobe usan para cargarlo automáticamente cuando otro subsistema del kernel requiere el algoritmo DES. mimodulo.ko no declara ninguno porque no representa un servicio o dispositivo invocable.
+- depends: des_generic.ko depende de libdes (al cargarse arrastra ese módulo); mimodulo.ko no depende de nada porque solo usa símbolos básicos del kernel (printk).
+
+Firma criptográfica
+
+- sig_id, signer, sig_key, sig_hashalgo, signature: presentes en des_generic.ko (firmado en tiempo de compilación con PKCS#7 + sha512 por la clave oficial del build de Ubuntu) y ausentes en mimodulo.ko.
+- Consecuencia práctica: al cargar mimodulo.ko, dmesg reporta module verification failed: signature and/or required key missing - tainting kernel, y en /proc/modules aparece el flag E (unsigned). En un sistema con Secure Boot + lockdown activo, esto haría que el módulo fuera rechazado directamente.
+
+# Punto 2 - ¿Qué divers/modulos estan cargados en sus propias pc?
+
+
+# Punto 3 - ¿cuales no están cargados pero están disponibles? que pasa cuando el driver de un dispositivo no está disponible.
+
+![Act3](./img/act3.png)
+
+Como se obserba hay 6474 modulos disponibles pero solo 181 modulos cargados, esto se debe a que linux usa carga bajo demanda.
+Los modulos que no estan cargados pero suelen estar disponibles son:
+- Filesystems exóticos: jfs, reiserfs, ntfs3, f2fs, udf.
+- Drivers de hardware que no tengo: drivers de WiFi de otros fabricantes.
+- Protocolos de red poco usados: l2tp_*, tipc, batman-adv, can.
+- Subsistemas opcionales: mac80211_hwsim, módulos de muestra en samples/ftrace/.
+
+### Que pasa cuando un dirver de un dispositivo no esta disponible?
+
+El dispositivo no funciona en lo absoluto. El kernel detecta la presencia del hardware, se puede ver en ```lspci -k``` como un device sin ```Kernel driver in use:``` pero no se puede comunicar con este.
+
+Otra opcion es que el dispositivo funcione en modo degradado con un driver generico. Muchos subsistemas tienen fallbacks genericos. Por ejemplo, una impresora sin driver especifico puede imprimir via un driver PostScript/PCL generico.
+
+Cuando falta un modulo critico para el arranque del propio sistema, el sistema no arranca, ocurre un kernel panic. Para evitar esto, los módulos esenciales se precargan en el initramfs: una imagen comprimida que el bootloader carga junto con el kernel y que contiene los módulos imprescindibles antes de que el sistema pueda acceder al disco real.
+
+# Punto 4 - Correr hwinfo en una pc real con hw real y agregar la url de la información de hw en el reporte.
+
+```hwinfo --short```
+
+![Act1](./img/act42.png)
+![Act1](./img/act4.png)
+
+### Link informacion de HW:
+
+https://linux-hardware.org/?probe=7ef899c7ed
+
+![Act1](./img/act41.png)
+
 # Punto 5 — ¿Qué diferencia existe entre un módulo y un programa?
 
 Existen tres diferencias fundamentales entre un módulo del kernel y un programa de usuario convencional:
@@ -120,6 +185,14 @@ El código de salida 139 = 128 + 11, donde 11 es el número de `SIGSEGV`. Es la 
 ## Diferencia con un módulo de kernel
 
 Si un módulo del kernel comete un acceso ilegal, no hay un proceso "padre" que lo termine. El resultado es un Kernel Oops (queda registrado en `dmesg` con stack trace y el kernel sigue marcado como *tainted*) o, en casos graves, un Kernel Panic que congela el sistema.
+
+# Punto 8 - ¿Se animan a intentar firmar un módulo de kernel ? y documentar el proceso ? 
+# Punto 9 - Agregar evidencia de la compilación, carga y descarga de su propio módulo imprimiendo el nombre del equipo en los registros del kernel. 
+# Punto 10 - ¿Que pasa si mi compañero con secure boot habilitado intenta cargar un módulo firmado por mi? 
+
+
+
+
 
 # Punto 11 — Artículo de Ars Technica sobre el parche de Microsoft y GRUB
 
