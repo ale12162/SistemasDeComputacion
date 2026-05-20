@@ -187,12 +187,252 @@ El código de salida 139 = 128 + 11, donde 11 es el número de `SIGSEGV`. Es la 
 Si un módulo del kernel comete un acceso ilegal, no hay un proceso "padre" que lo termine. El resultado es un Kernel Oops (queda registrado en `dmesg` con stack trace y el kernel sigue marcado como *tainted*) o, en casos graves, un Kernel Panic que congela el sistema.
 
 # Punto 8 - ¿Se animan a intentar firmar un módulo de kernel ? y documentar el proceso ? 
+
+#### 1. Verificación de herramientas
+
+Se confirmó la disponibilidad de `openssl` y del script `sign-file` provisto por las fuentes del kernel:
+
+![Verificación de herramientas](./img/act88.png)
+
+#### 2. Generación del par de claves
+
+Se generó un par RSA de 2048 bits con un certificado X.509 autofirmado en formato DER:
+
+```bash
+openssl req -new -x509 -newkey rsa:2048 \
+    -keyout MOK.priv \
+    -outform DER -out MOK.der \
+    -nodes -days 36500 \
+    -subj "/CN=Claudes Interns Module Signing/"
+chmod 600 MOK.priv
+```
+
+Detalle de los flags más relevantes:
+
+- `-x509`: genera un certificado autofirmado (no requiere CA externa).
+- `-newkey rsa:2048`: genera además un par de claves RSA de 2048 bits.
+- `-outform DER`: el certificado se exporta en formato binario DER.
+- `-nodes`: la clave privada no se encripta con passphrase (caso contrario, habría que tipearla cada vez que se firme un módulo).
+- `-days 36500`: validez de 100 años.
+- `-subj "/CN=..."`: *Common Name* del certificado, que aparecerá luego en el campo `signer:` de `modinfo`.
+
+![Generación de claves](./img/act881.png)
+
+Se generaron los dos archivos esperados: `MOK.priv` (clave privada, 1704 bytes, permisos `600`) y `MOK.der` (certificado público, 825 bytes).
+
+#### 3. Inspección del certificado generado
+
+```bash
+openssl x509 -inform DER -in MOK.der -text -noout | head -15
+```
+
+![Inspección del certificado](./img/act882.png)
+
+El certificado tiene Subject `CN = Claudes Interns Module Signing`, algoritmo de firma `sha256WithRSAEncryption`, clave pública RSA de 2048 bits, y un Serial Number (`5e:19:d9:0d:29:6d:d6:d0:79:61:28:63:69:d0:af:8f:d9:f2:25:bb`) que más adelante se observará reflejado en el `sig_key` del módulo firmado.
+
+#### 4. `modinfo` ANTES de firmar
+
+Antes de aplicar la firma, los metadatos del módulo solo contienen los campos declarados mediante las macros `MODULE_*` del fuente:
+
+```bash
+modinfo mimodulo.ko
+```
+
+![modinfo antes de firmar](./img/act883.png)
+
+No aparece ningún campo `sig_*`. El módulo está sin firmar.
+
+#### 5. Firma del módulo
+
+Se firmó el módulo con `sign-file`, usando SHA-256 como algoritmo de hash:
+
+```bash
+KERNEL=$(uname -r)
+
+sudo /usr/src/linux-headers-$KERNEL/scripts/sign-file \
+    sha256 \
+    ~/MOK_juanma/MOK.priv \
+    ~/MOK_juanma/MOK.der \
+    mimodulo.ko
+```
+
+![Firma del módulo](./img/act884.png)
+
+`sign-file` no produce salida si todo sale bien. El archivo `mimodulo.ko` ahora pesa 297476 bytes (creció respecto al original; la firma se appendea al final del archivo).
+
+#### 6. Verificación del magic marker
+
+```bash
+tail -c 50 mimodulo.ko | strings
+```
+
+![Magic marker de firma](./img/act886.png)
+
+Aparece la cadena `~Module signature appended~`, que es el marcador que el kernel busca al final del archivo para detectar si tiene firma adjunta. La firma **no se incrusta dentro del ELF**: queda como un blob PKCS#7 al final del archivo, precedido por este marcador.
+
+#### 7. `modinfo` DESPUÉS de firmar
+
+```bash
+modinfo mimodulo.ko
+```
+
+![modinfo después de firmar](./img/act886.png)
+
+Aparecen los campos correspondientes a la firma:
+
+- **`sig_id: PKCS#7`**: formato del bloque de firma (estándar criptográfico para firmas sobre datos arbitrarios).
+- **`signer: Claudes Interns Module Signing`**: *Common Name* del certificado firmante.
+- **`sig_key: 5E:19:D9:0D:29:6D:D6:D0:79:61:28:63:69:D0:AF:8F:D9:F2:25:BB`**: identificador de la clave, que coincide exactamente con el Serial Number del certificado generado en el paso 3.
+- **`sig_hashalgo: sha256`**: algoritmo usado para calcular el hash del módulo antes de firmarlo.
+- **`signature: 43:03:08:5B:...`**: bloque RSA de 256 bytes (2048 bits) con la firma propiamente dicha.
+
+#### 8. Carga del módulo firmado y observación
+
+```bash
+sudo rmmod mimodulo 2>/dev/null
+sudo insmod mimodulo.ko
+sudo dmesg | tail -5
+```
+
+![Carga del módulo firmado](./img/act887.png)
+
+El módulo cargó correctamente. El `printk` del `_init` se ejecutó en kernel space:
+
+```
+Modulo cargado en el kernel desde el equipo: zephyrus
+```
+
+### Análisis y limitación observada
+
+A pesar de la firma válida, el kernel no la reconoce como "confiable". La evidencia:
+
+```
+$ cat /proc/sys/kernel/tainted
+12288
+
+$ sudo cat /proc/modules | grep mimodulo
+mimodulo 12288 0 - Live 0xffffffffc2568000 (OE)
+```
+
+El valor `12288 = 0x3000` corresponde a los bits 12 (`E` — unsigned module) y 13 (`O` — out-of-tree). Las flags `(OE)` en `/proc/modules` confirman lo mismo: el kernel considera al módulo como tainted por estar fuera del árbol oficial **y** por no tener una firma confiable, aunque criptográficamente el módulo sí esté firmado.
+
+La causa se evidencia inspeccionando los keyrings del kernel:
+
+```bash
+sudo cat /proc/keys | grep -i "Signing"
+```
+
+Solo aparecen las claves de Canonical Ltd. (Secure Boot Signing, Kernel Module Signing, Live Patch Signing). Mi certificado autofirmado no aparece en ningún keyring confiable.
+
+La razón es que mi sistema tiene **Secure Boot deshabilitado** (`mokutil --sb-state` reporta `SecureBoot disabled`). Sin Secure Boot + shim activos durante el arranque, el mecanismo de enrolment vía `mokutil --import` no surte efecto sobre el keyring del kernel: aunque la clave quede registrada en el firmware, no se incorpora al keyring `.machine` o `.platform_keys` desde donde el kernel verifica las firmas.
+
+**Conclusión:** la firma criptográfica del módulo es matemáticamente válida (cualquier sistema con `MOK.der` puede verificar que efectivamente fue firmado con la clave correspondiente), pero su aceptación como firma "confiable" es una **decisión local de cada kernel**, basada en qué claves tiene enroladas.
+
+
+
 # Punto 9 - Agregar evidencia de la compilación, carga y descarga de su propio módulo imprimiendo el nombre del equipo en los registros del kernel. 
+
+### Modificación del fuente
+
+Se agregaron tres cambios mínimos a `mimodulo.c`:
+
+1. Include `<linux/utsname.h>` para acceder a `utsname()`.
+2. Argumento `%s` con `utsname()->nodename` en el `printk` de carga.
+3. Lo mismo en el `printk` de descarga.
+
+```c
+#include <linux/module.h>   /* Requerido por todos los módulos */
+#include <linux/kernel.h>   /* Definición de KERN_INFO */
+#include <linux/utsname.h>  /* Para acceder al hostname vía utsname() */
+
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Primer modulo ejemplo");
+MODULE_AUTHOR("Catedra de SdeC");
+
+int modulo_lin_init(void)
+{
+    printk(KERN_INFO "Modulo cargado en el kernel desde el equipo: %s\n",
+           utsname()->nodename);
+    return 0;
+}
+
+void modulo_lin_clean(void)
+{
+    printk(KERN_INFO "Modulo descargado del kernel desde el equipo: %s\n",
+           utsname()->nodename);
+}
+
+module_init(modulo_lin_init);
+module_exit(modulo_lin_clean);
+```
+
+`utsname()` es un símbolo exportado del kernel que devuelve la misma estructura que la syscall `uname()` expone a user space. Un módulo no puede usar `gethostname()` de glibc porque vive en kernel space y no se enlaza contra libc.
+
+### Compilación
+
+```bash
+make clean && make
+```
+
+![Compilación del módulo modificado](./img/act8.png)
+
+Se generaron correctamente `mimodulo.o`, `mimodulo.mod.o` y `mimodulo.ko`.
+
+### Carga y descarga
+
+```bash
+sudo insmod mimodulo.ko
+sudo dmesg | tail -5
+sudo rmmod mimodulo
+```
+
+![Ciclo de carga y descarga con hostname](./img/act81.png)
+
+Las dos últimas líneas del ring buffer muestran el módulo modificado en acción:
+
+```
+[52667.823793] Modulo cargado en el kernel desde el equipo: zephyrus
+[52667.998806] Modulo descargado del kernel desde el equipo: zephyrus
+```
+
+El hostname `zephyrus` fue obtenido desde dentro del kernel mediante `utsname()->nodename`, y coincide con la salida de `hostname` y `uname -n` en user space. Las líneas anteriores en la captura corresponden a cargas previas del módulo sin la modificación, lo que permite ver el contraste antes/después.
+
 # Punto 10 - ¿Que pasa si mi compañero con secure boot habilitado intenta cargar un módulo firmado por mi? 
 
+**El módulo será rechazado por el kernel de mi compañero.**
 
+Al intentar cargarlo verá:
 
+```
+insmod: ERROR: could not insert module mimodulo.ko: Key was rejected by service
+```
 
+Y en `dmesg`:
+
+```
+PKCS#7 signature not signed with a trusted key
+mimodulo: Loading of module with unavailable key is rejected
+```
+
+### Por qué
+
+Cuando el kernel verifica una firma, busca la clave pública del firmante en sus *keyrings* confiables:
+
+- `.builtin_trusted_keys`: claves del fabricante de la distro (Canonical en Ubuntu).
+- `.platform_keys`: claves del firmware UEFI.
+- `.machine` (MOK): claves enroladas por el usuario vía `mokutil`.
+
+Mi `MOK.der` está en *mi* keyring, no en el de mi compañero. Aunque la firma sea matemáticamente válida (su kernel podría verificar con mi clave pública que efectivamente fui yo quien firmó), el kernel no la reconoce como confiable porque la clave no está enrolada localmente. Con Secure Boot activo y `sig_enforce=1`, esto equivale a rechazo directo (no solo `taint`).
+
+### Cómo podría aceptarlo
+
+Mi compañero debería:
+
+1. Recibir mi `MOK.der` (la **pública**; nunca `MOK.priv`).
+2. `sudo mokutil --import MOK.der`.
+3. Reiniciar y confirmar el enroll en la pantalla azul de MOK Manager.
+
+Recién entonces su kernel confiaría en módulos firmados por mí.
 
 # Punto 11 — Artículo de Ars Technica sobre el parche de Microsoft y GRUB
 

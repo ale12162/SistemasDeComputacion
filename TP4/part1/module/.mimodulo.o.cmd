@@ -1032,6 +1032,12 @@ deps_/home/juanma/Documents/Facu26/SdC/SistemasDeComputacion/TP4/part1/module/mi
     $(wildcard include/config/HAVE_MOD_ARCH_SPECIFIC) \
     $(wildcard include/config/MODULES_USE_ELF_REL) \
     $(wildcard include/config/MODULES_USE_ELF_RELA) \
+  include/linux/utsname.h \
+    $(wildcard include/config/UTS_NS) \
+    $(wildcard include/config/PROC_SYSCTL) \
+  include/linux/nsproxy.h \
+  include/linux/ns_common.h \
+  include/uapi/linux/utsname.h \
 
 /home/juanma/Documents/Facu26/SdC/SistemasDeComputacion/TP4/part1/module/mimodulo.o: $(deps_/home/juanma/Documents/Facu26/SdC/SistemasDeComputacion/TP4/part1/module/mimodulo.o)
 
