@@ -16,13 +16,13 @@ _Javier A. Jorge; Miguel A. Solinas;_
 
 Existen tres diferencias fundamentales entre un módulo del kernel y un programa de usuario convencional:
 
-* **Espacio de ejecución:** Los programas se ejecutan como procesos independientes dentro del **espacio de usuario** (*user space*), el cual tiene permisos restringidos e indirectos. Por el contrario, los módulos operan directamente en el **espacio del kernel** (*kernel space*), teniendo acceso privilegiado y directo a todos los recursos de hardware y a la memoria física del sistema.
-* **Propósito y ciclo de vida:** Mientras que un programa es una aplicación diseñada para cumplir una tarea específica ejecutándose de principio a fin, un módulo es un fragmento de código diseñado para cargarse (ej. `insmod`) y descargarse (ej. `rmmod`) en el kernel de forma dinámica. Su función principal es extender la funcionalidad del sistema operativo sobre la marcha (como agregar un nuevo controlador de dispositivo) sin necesidad de compilar un kernel monolítico inmenso ni tener que reiniciar la máquina.
-* **Impacto de los errores (Criticidad):** En un programa convencional, si se comete un error grave de acceso a memoria, el sistema operativo aísla el fallo, detiene únicamente ese proceso (generando un *segmentation fault*) y el resto del equipo sigue funcionando. En un módulo, al operar en el nivel de máximo privilegio, un error similar (como el uso de un puntero salvaje) no puede ser contenido; puede corromper estructuras de datos críticas de otros procesos, dañar el sistema de archivos o provocar un colapso total del sistema operativo (*Kernel Panic*), lo que obliga a reiniciar físicamente el equipo.
+* Espacio de ejecución: los programas se ejecutan como procesos independientes dentro del espacio de usuario (*user space*), el cual tiene permisos restringidos e indirectos. Por el contrario, los módulos operan directamente en el espacio del kernel (*kernel space*), teniendo acceso privilegiado y directo a todos los recursos de hardware y a la memoria física del sistema.
+* Propósito y ciclo de vida: mientras que un programa es una aplicación diseñada para cumplir una tarea específica ejecutándose de principio a fin, un módulo es un fragmento de código diseñado para cargarse (ej. `insmod`) y descargarse (ej. `rmmod`) en el kernel de forma dinámica. Su función principal es extender la funcionalidad del sistema operativo sobre la marcha (como agregar un nuevo controlador de dispositivo) sin necesidad de compilar un kernel monolítico inmenso ni tener que reiniciar la máquina.
+* Impacto de los errores: en un programa convencional, si se comete un error grave de acceso a memoria, el sistema operativo aísla el fallo, detiene únicamente ese proceso (generando un *segmentation fault*) y el resto del equipo sigue funcionando. En un módulo, al operar en el nivel de máximo privilegio, un error similar (como el uso de un puntero salvaje) no puede ser contenido; puede corromper estructuras de datos críticas de otros procesos, dañar el sistema de archivos o provocar un colapso total del sistema operativo (*Kernel Panic*), lo que obliga a reiniciar físicamente el equipo.
 
 # Punto 6 — ¿Cómo ver las llamadas al sistema que realiza un hello world en C?
 
-Con la herramienta **`strace`**, que intercepta y muestra todas las syscalls que ejecuta un proceso.
+Con la herramienta `strace`, que intercepta y muestra todas las syscalls que ejecuta un proceso.
 
 ```bash
 gcc hello.c -o hello
@@ -70,24 +70,24 @@ Resumen obtenido con `strace -c ./hello`:
 100.00    0.000159           4        34         1 total
 ```
 
-Un simple "hola mundo" generó **34 syscalls**, de las cuales sólo una (`write`) corresponde al `printf`. El resto son del cargador dinámico y la inicialización de la libc.
+Un simple "hola mundo" generó 34 syscalls, de las cuales sólo una (`write`) corresponde al `printf`. El resto son del cargador dinámico y la inicialización de la libc.
 
 # Punto 7 — ¿Qué es un segmentation fault? ¿Cómo lo maneja el kernel y cómo lo hace un programa?
 
 ## ¿Qué es?
 
-Una **violación de acceso a memoria**: el programa intentó leer o escribir en una dirección virtual a la que no tiene permiso (memoria no mapeada, un puntero `NULL`, una región de sólo lectura, o fuera de los segmentos asignados al proceso).
+Una violación de acceso a memoria: el programa intentó leer o escribir en una dirección virtual a la que no tiene permiso (memoria no mapeada, un puntero `NULL`, una región de sólo lectura, o fuera de los segmentos asignados al proceso).
 
 ## Cómo lo maneja el kernel
 
-1. La **MMU** (hardware del CPU) detecta el acceso ilegal y genera una excepción de tipo *page fault*.
+1. La MMU (hardware del CPU) detecta el acceso ilegal y genera una excepción de tipo *page fault*.
 2. El handler de page fault del kernel evalúa si el acceso es legítimo (página válida pero no presente en RAM → la trae del swap) o realmente inválido.
-3. Si es inválido, el kernel envía al proceso la señal **`SIGSEGV`** (signal 11).
+3. Si es inválido, el kernel envía al proceso la señal `SIGSEGV` (signal 11).
 
 ## Cómo lo maneja el programa
 
-- Por defecto, el manejador de `SIGSEGV` **termina el proceso** y genera un *core dump* (si `ulimit -c` lo permite) para depuración con `gdb`.
-- El programa puede **capturar** la señal con `signal()` o `sigaction()` y manejarla, aunque no es buena práctica porque tras un segfault el estado de la memoria queda inconsistente.
+- Por defecto, el manejador de `SIGSEGV` termina el proceso y genera un *core dump* (si `ulimit -c` lo permite) para depuración con `gdb`.
+- El programa puede capturar la señal con `signal()` o `sigaction()` y manejarla, aunque no es buena práctica porque tras un segfault el estado de la memoria queda inconsistente.
 
 ## Evidencia
 
@@ -115,11 +115,11 @@ $ echo "Codigo de salida: $?"
 Codigo de salida: 139
 ```
 
-El código de salida **139 = 128 + 11**, donde 11 es el número de `SIGSEGV`. Es la convención de bash para indicar que el proceso fue terminado por una señal.
+El código de salida 139 = 128 + 11, donde 11 es el número de `SIGSEGV`. Es la convención de bash para indicar que el proceso fue terminado por una señal.
 
 ## Diferencia con un módulo de kernel
 
-Si un **módulo del kernel** comete un acceso ilegal, no hay un proceso "padre" que lo termine. El resultado es un **Kernel Oops** (queda registrado en `dmesg` con stack trace y el kernel sigue marcado como *tainted*) o, en casos graves, un **Kernel Panic** que congela el sistema.
+Si un módulo del kernel comete un acceso ilegal, no hay un proceso "padre" que lo termine. El resultado es un Kernel Oops (queda registrado en `dmesg` con stack trace y el kernel sigue marcado como *tainted*) o, en casos graves, un Kernel Panic que congela el sistema.
 
 # Punto 11 — Artículo de Ars Technica sobre el parche de Microsoft y GRUB
 
@@ -127,16 +127,16 @@ Si un **módulo del kernel** comete un acceso ilegal, no hay un proceso "padre" 
 
 ## 11.a) ¿Cuál fue la consecuencia principal del parche de Microsoft sobre GRUB en sistemas con arranque dual?
 
-En el Patch Tuesday de **agosto de 2024**, Microsoft distribuyó una actualización SBAT (Secure Boot Advanced Targeting) destinada a mitigar la vulnerabilidad **CVE-2022-2601**, un *buffer overflow* en GRUB2 que permitía bypassear Secure Boot.
+En el Patch Tuesday de agosto de 2024, Microsoft distribuyó una actualización SBAT (Secure Boot Advanced Targeting) destinada a mitigar la vulnerabilidad CVE-2022-2601, un *buffer overflow* en GRUB2 que permitía bypassear Secure Boot.
 
-Microsoft anunció que el parche **no se aplicaría** a equipos con arranque dual, pero el mecanismo de detección de dual-boot **falló**, y la actualización se instaló en muchas máquinas con Windows + Linux. Como consecuencia, esos equipos **no podían iniciar Linux**, mostrando el error:
+Microsoft anunció que el parche no se aplicaría a equipos con arranque dual, pero el mecanismo de detección de dual-boot falló, y la actualización se instaló en muchas máquinas con Windows + Linux. Como consecuencia, esos equipos no podían iniciar Linux, mostrando el error:
 
 ```
 Verifying shim SBAT data failed: Security Policy Violation.
 Something has gone seriously wrong: SBAT self-check failed: Security Policy Violation.
 ```
 
-Afectó a las principales distribuciones (Ubuntu, Linux Mint, Debian, Zorin OS, Puppy Linux, entre otras). Microsoft tardó hasta **mayo de 2025** en lanzar la solución definitiva.
+Afectó a las principales distribuciones (Ubuntu, Linux Mint, Debian, Zorin OS, Puppy Linux, entre otras). Microsoft tardó hasta mayo de 2025 en lanzar la solución definitiva.
 
 ## 11.b) ¿Qué implicancia tiene desactivar Secure Boot como solución al problema?
 
@@ -144,20 +144,20 @@ Si bien desactivar Secure Boot permite evadir la restricción del parche y volve
 
 ## 11.c) ¿Cuál es el propósito principal del Secure Boot en el proceso de arranque?
 
-Secure Boot es una característica del firmware **UEFI** cuyo objetivo es **garantizar que sólo se ejecute durante el arranque código firmado digitalmente** por una autoridad de confianza. Establece una cadena de verificación criptográfica: el firmware verifica el bootloader, el bootloader verifica el kernel, y el kernel verifica los módulos.
+Secure Boot es una característica del firmware UEFI cuyo objetivo es garantizar que sólo se ejecute durante el arranque código firmado digitalmente por una autoridad de confianza. Establece una cadena de verificación criptográfica: el firmware verifica el bootloader, el bootloader verifica el kernel, y el kernel verifica los módulos.
 
-Su propósito es proteger contra **bootkits, rootkits y malware persistente** que intenten ejecutarse antes de que el sistema operativo y sus defensas (antivirus, EDR) tengan oportunidad de cargarse.
+Su propósito es proteger contra bootkits, rootkits y malware persistente que intenten ejecutarse antes de que el sistema operativo y sus defensas (antivirus, EDR) tengan oportunidad de cargarse.
 
 # Desafío #1
 
 ## ¿Qué es checkinstall y para qué sirve?
 
-`checkinstall` es una herramienta que envuelve la instalación de software compilado desde fuentes (`make install`) y, en lugar de copiar archivos sueltos al sistema, genera un **paquete nativo del distribuidor** (`.deb` en Debian/Ubuntu, `.rpm` en Red Hat/Fedora, `.tgz` en Slackware). Esto permite:
+`checkinstall` es una herramienta que envuelve la instalación de software compilado desde fuentes (`make install`) y, en lugar de copiar archivos sueltos al sistema, genera un paquete nativo del distribuidor (`.deb` en Debian/Ubuntu, `.rpm` en Red Hat/Fedora, `.tgz` en Slackware). Esto permite:
 
-- **Registrar** la instalación en el gestor de paquetes del sistema (`dpkg -l`, `rpm -qa`).
-- **Desinstalar limpiamente** con `dpkg -r` o `rpm -e`.
-- **Distribuir** el paquete a otras máquinas.
-- Asociar **metadatos** (versión, mantenedor, dependencias, licencia) al software.
+- Registrar la instalación en el gestor de paquetes del sistema (`dpkg -l`, `rpm -qa`).
+- Desinstalar limpiamente con `dpkg -r` o `rpm -e`.
+- Distribuir el paquete a otras máquinas.
+- Asociar metadatos (versión, mantenedor, dependencias, licencia) al software.
 
 Sin `checkinstall`, los archivos copiados por `make install` quedan dispersos y son difíciles de remover de forma confiable.
 
@@ -258,16 +258,16 @@ El paquete `.deb` queda incluido en el repositorio del grupo como evidencia.
 
 ### ¿Qué es un rootkit?
 
-Un **rootkit** es software malicioso diseñado para obtener y mantener acceso privilegiado a un sistema **ocultando su presencia**. Los más peligrosos son los de **nivel kernel**, que se cargan como módulos (LKM) y, al ejecutarse en ring 0, pueden modificar las estructuras internas del sistema operativo para esconder sus propios procesos, archivos, conexiones de red y módulos del listado de `lsmod`. Resultan casi indetectables desde el espacio de usuario porque son ellos mismos los que responden a las consultas.
+Un rootkit es software malicioso diseñado para obtener y mantener acceso privilegiado a un sistema ocultando su presencia. Los más peligrosos son los de nivel kernel, que se cargan como módulos (LKM) y, al ejecutarse en ring 0, pueden modificar las estructuras internas del sistema operativo para esconder sus propios procesos, archivos, conexiones de red y módulos del listado de `lsmod`. Resultan casi indetectables desde el espacio de usuario porque son ellos mismos los que responden a las consultas.
 
 ### Defensa: exigir firma de módulos
 
-Linux permite **rechazar cualquier módulo que no esté firmado** con una clave en la que el kernel confíe. La defensa combina cuatro capas:
+Linux permite rechazar cualquier módulo que no esté firmado con una clave en la que el kernel confíe. La defensa combina cuatro capas:
 
-1. **Secure Boot activo en UEFI**: establece la cadena de confianza desde el firmware → bootloader → kernel.
-2. **Parámetro de arranque `module.sig_enforce=1`**: hace que el kernel **rechace cualquier módulo sin firma válida**, incluso si lo intenta cargar root.
-3. **`lockdown=confidentiality`** o `integrity`: restringe operaciones de root que podrían modificar el kernel en runtime (acceso a `/dev/mem`, `kexec`, escritura a registros MSR, etc.).
-4. **Claves confiables**: las del distribuidor (Canonical, Red Hat) y las **MOK** (Machine Owner Keys) importadas por el usuario con `mokutil --import`.
+1. Secure Boot activo en UEFI: establece la cadena de confianza desde el firmware → bootloader → kernel.
+2. Parámetro de arranque `module.sig_enforce=1`: hace que el kernel rechace cualquier módulo sin firma válida, incluso si lo intenta cargar root.
+3. `lockdown=confidentiality` o `integrity`: restringe operaciones de root que podrían modificar el kernel en runtime (acceso a `/dev/mem`, `kexec`, escritura a registros MSR, etc.).
+4. Claves confiables: las del distribuidor (Canonical, Red Hat) y las MOK (Machine Owner Keys) importadas por el usuario con `mokutil --import`.
 
 Verificación de que la protección está activa:
 
@@ -282,14 +282,14 @@ Con esta configuración, ni un atacante con privilegios de root puede cargar un 
 
 ## ¿Qué funciones tiene disponibles un programa y un módulo?
 
-Un **programa de usuario** dispone de:
+Un programa de usuario dispone de:
 
-- La **librería estándar de C (libc)**: `printf`, `scanf`, `malloc`/`free`, `fopen`, `strcpy`, etc.
-- La API **POSIX**: `open`, `read`, `write`, `fork`, `exec`, `pipe`, `mmap`, hilos POSIX, señales, etc.
-- Cualquier **librería externa** enlazada (OpenSSL, SDL, GTK, Qt, libcurl, ...).
-- Para acceder al hardware o a recursos del sistema usa **llamadas al sistema** (~400 en Linux), que son la única vía hacia el kernel.
+- La librería estándar de C (libc): `printf`, `scanf`, `malloc`/`free`, `fopen`, `strcpy`, etc.
+- La API POSIX: `open`, `read`, `write`, `fork`, `exec`, `pipe`, `mmap`, hilos POSIX, señales, etc.
+- Cualquier librería externa enlazada (OpenSSL, SDL, GTK, Qt, libcurl, ...).
+- Para acceder al hardware o a recursos del sistema usa llamadas al sistema (~400 en Linux), que son la única vía hacia el kernel.
 
-Un **módulo del kernel** **NO** tiene libc ni POSIX. Sólo dispone de la **API interna del kernel**, incluida desde headers como `<linux/module.h>`, `<linux/kernel.h>`, `<linux/slab.h>`. Funciones más comunes:
+Un módulo del kernel no tiene libc ni POSIX. Sólo dispone de la API interna del kernel, incluida desde headers como `<linux/module.h>`, `<linux/kernel.h>`, `<linux/slab.h>`. Funciones más comunes:
 
 - `printk()` para imprimir al buffer del kernel (visible con `dmesg`).
 - `kmalloc()` / `kfree()` para memoria dinámica del kernel.
@@ -311,31 +311,31 @@ Linux divide la memoria virtual y los privilegios en dos zonas:
 | Ejemplos | Firefox, bash, gcc | Drivers, scheduler, FS |
 
 El paso de un espacio al otro se da por tres mecanismos:
-- **Syscalls**: el proceso solicita un servicio al kernel.
-- **Interrupciones**: el hardware pide atención.
-- **Excepciones**: errores como page faults o división por cero.
+- Syscalls: el proceso solicita un servicio al kernel.
+- Interrupciones: el hardware pide atención.
+- Excepciones: errores como page faults o división por cero.
 
 ## Espacio de datos
 
 Cuando un programa se ejecuta, su memoria virtual se organiza en segmentos:
 
-- **Text**: código ejecutable, sólo lectura.
-- **Data**: variables globales/estáticas inicializadas (`int x = 5;`).
-- **BSS**: variables globales/estáticas no inicializadas (se ponen a cero al cargarse).
-- **Heap**: memoria dinámica con `malloc`. Crece hacia arriba.
-- **Stack**: variables locales, parámetros, direcciones de retorno. Crece hacia abajo.
-- **Memoria mapeada**: librerías compartidas, archivos abiertos con `mmap`.
+- Text: código ejecutable, sólo lectura.
+- Data: variables globales/estáticas inicializadas (`int x = 5;`).
+- BSS: variables globales/estáticas no inicializadas (se ponen a cero al cargarse).
+- Heap: memoria dinámica con `malloc`. Crece hacia arriba.
+- Stack: variables locales, parámetros, direcciones de retorno. Crece hacia abajo.
+- Memoria mapeada: librerías compartidas, archivos abiertos con `mmap`.
 
-En el **kernel**, esta organización no es la misma: el módulo se carga en una zona reservada y comparte el espacio con el resto del kernel. Las direcciones virtuales del kernel **no son las mismas** que las de los procesos, por eso para transferir datos entre ambos espacios hay que usar `copy_to_user()` / `copy_from_user()` y nunca derefenciar punteros de usuario directamente desde el kernel.
+En el kernel, esta organización no es la misma: el módulo se carga en una zona reservada y comparte el espacio con el resto del kernel. Las direcciones virtuales del kernel no son las mismas que las de los procesos, por eso para transferir datos entre ambos espacios hay que usar `copy_to_user()` / `copy_from_user()` y nunca derefenciar punteros de usuario directamente desde el kernel.
 
 ## Drivers e investigación de `/dev`
 
-En Linux **todo es un archivo**: los dispositivos se exponen como entradas en `/dev`, y los programas interactúan con ellos usando las syscalls habituales (`open`, `read`, `write`, `ioctl`).
+En Linux todo es un archivo: los dispositivos se exponen como entradas en `/dev`, y los programas interactúan con ellos usando las syscalls habituales (`open`, `read`, `write`, `ioctl`).
 
 Cada entrada en `/dev` tiene:
-- **Tipo**: `c` (carácter, byte a byte: teclados, terminales) o `b` (bloque, en bloques fijos: discos).
-- **Major number**: identifica qué driver maneja el dispositivo.
-- **Minor number**: identifica la instancia concreta dentro del driver.
+- Tipo: `c` (carácter, byte a byte: teclados, terminales) o `b` (bloque, en bloques fijos: discos).
+- Major number: identifica qué driver maneja el dispositivo.
+- Minor number: identifica la instancia concreta dentro del driver.
 
 Ejemplo:
 
@@ -354,4 +354,4 @@ Ejemplos típicos:
 - `/dev/tty`, `/dev/pts/*` → terminales.
 - `/dev/input/event*` → eventos de teclado, mouse, joystick.
 
-Un **driver** es el software que permite al kernel comunicarse con un dispositivo de hardware específico. Cuando se desarrolla uno nuevo, generalmente se implementa como **módulo del kernel** que se registra ante el subsistema correspondiente (por ejemplo `register_chrdev`) y crea su nodo en `/dev`. Así los programas de usuario pueden abrirlo y hablar con el hardware vía syscalls estándar.
+Un driver es el software que permite al kernel comunicarse con un dispositivo de hardware específico. Cuando se desarrolla uno nuevo, generalmente se implementa como módulo del kernel que se registra ante el subsistema correspondiente y crea su nodo en `/dev`. Así los programas de usuario pueden abrirlo y hablar con el hardware vía syscalls estándar.
