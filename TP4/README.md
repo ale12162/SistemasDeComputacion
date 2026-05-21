@@ -117,6 +117,11 @@ https://linux-hardware.org/?probe=7ef899c7ed
 
 ![Act1](./img/act41.png)
 
+https://linux-hardware.org/?probe=b548b57501
+
+<img width="500" height="500" alt="image" src="https://github.com/user-attachments/assets/66af5127-d3a0-4a13-82aa-601c685ce38a" />
+
+
 # Punto 5 — ¿Qué diferencia existe entre un módulo y un programa?
 
 Existen tres diferencias fundamentales entre un módulo del kernel y un programa de usuario convencional:
